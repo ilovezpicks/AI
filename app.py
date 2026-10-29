@@ -77,29 +77,48 @@ def player_log(pid,season):
 
 
 @st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def team_defensive_sample(team_code, season):
+    """Only ESPN-confirmed final games; team-level points scored/allowed."""
     teams=fetch(BASE+'/teams',{'limit':100}).get('sports',[{}])[0].get('leagues',[{}])[0].get('teams',[])
-    matches=[x.get('team',x) for x in teams if x.get('team',x).get('abbreviation','').upper()==team_code]
-    if not matches: raise ValueError('Team not present in current ESPN team index')
+    aliases={'GSW':{'GSW','GS'},'NOP':{'NOP','NO'},'NYK':{'NYK','NY'},'SAS':{'SAS','SA'},'UTA':{'UTA','UTAH'},'WAS':{'WAS','WSH'}}
+    accepted=aliases.get(team_code,{team_code})
+    matches=[x.get('team',x) for x in teams if x.get('team',x).get('abbreviation','').upper() in accepted]
+    if not matches:raise ValueError('Selected team not found in ESPN team directory')
     tid=str(matches[0]['id'])
     payload=fetch(BASE+'/teams/'+tid+'/schedule',{'season':season})
+    def numeric_score(value):
+        if isinstance(value,dict):
+            value=value.get('value') if value.get('value') is not None else value.get('displayValue')
+        try:return float(value)
+        except (TypeError,ValueError):return None
     records=[]
     for ev in payload.get('events',[]):
         comp=(ev.get('competitions') or [{}])[0]
-        status=comp.get('status',ev.get('status',{}))
-        completed=status.get('type',{}).get('completed',False) if isinstance(status,dict) else False
-        if not completed: continue
-        entries=comp.get('competitors',[])
+        status=comp.get('status') or ev.get('status') or {}
+        if not isinstance(status,dict) or status.get('type',{}).get('completed') is not True:continue
+        entries=comp.get('competitors') or []
         if len(entries)!=2:continue
         own=next((c for c in entries if str(c.get('id') or c.get('team',{}).get('id'))==tid),None)
-        opp=next((c for c in entries if c is not own),None) if own else None
-        if not opp:continue
-        score=opp.get('score')
-        if isinstance(score,dict): score=score.get('value') or score.get('displayValue')
-        try: allowed=float(score)
-        except (TypeError,ValueError):continue
-        records.append({'Date':ev.get('date'),'Opponent':opp.get('team',{}).get('abbreviation',''),'Points allowed':allowed})
-    return pd.DataFrame(records)
+        if own is None:continue
+        opp=next((c for c in entries if c is not own),None)
+        if opp is None:continue
+        allowed=numeric_score(opp.get('score'))
+        scored=numeric_score(own.get('score'))
+        if allowed is None or scored is None:continue
+        homeaway=str(own.get('homeAway') or '').lower()
+        venue='Home' if homeaway=='home' else ('Away' if homeaway=='away' else 'Unknown')
+        records.append({'Date':ev.get('date'),'Opponent':opp.get('team',{}).get('abbreviation',''),
+                        'Venue':venue,'Points allowed':allowed,'Points scored':scored,
+                        'Margin':scored-allowed,'Result':'W' if scored>allowed else ('L' if scored<allowed else 'T'),
+                        'Event ID':str(ev.get('id',''))})
+    frame=pd.DataFrame(records,columns=['Date','Opponent','Venue','Points allowed','Points scored','Margin','Result','Event ID'])
+    if not frame.empty:
+        frame['Date']=pd.to_datetime(frame['Date'],errors='coerce',utc=True)
+        frame=frame.dropna(subset=['Date']).drop_duplicates(subset=['Event ID','Date'])
+        frame=frame.sort_values('Date',ascending=False).reset_index(drop=True)
+        frame['Date']=frame['Date'].dt.strftime('%Y-%m-%d')
+    return frame
 
 def describe_rates(frame,metric,threshold):
     if metric not in frame:return None
@@ -447,32 +466,57 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
 
 
 if st.session_state.foxk_section == NAV_ITEMS[4]:
-
-    st.subheader('Opponent defensive research')
-    st.caption('Verified final-score points allowed from ESPN team schedules. This is team-level scoring allowed, NOT player-specific defensive ranking or individual defender tracking.')
+    st.subheader('Opponent Defense 2.0')
+    st.caption('Actual final-score results from ESPN team schedules. Team scoring allowed is not individual-player or position-specific defense.')
     def_team=st.selectbox('Defensive opponent',canonical,index=default_idx,key='foxk_defense_team')
-    if st.button('Load opponent defense',key='foxk_defense_load'):
-        try:
+    try:
+        with st.spinner('Loading completed NBA games from ESPN…'):
             defense=team_defensive_sample(def_team,season)
-            if defense.empty:st.warning('No completed games with parseable scores were returned. No defensive averages can be calculated.')
-            else:
-                st.metric('Completed games',len(defense))
-                st.metric('Opponent points allowed / game',f"{defense['Points allowed'].mean():.1f}")
-                st.caption('Raw team points allowed is affected by pace and opponent strength. Do not interpret as a position-specific defensive rating.')
-                defense=defense.sort_values('Date',ascending=False).reset_index(drop=True)
-                dc=st.columns(3)
-                for i,(name,n) in enumerate([('Last 5',5),('Last 10',10),('All returned',len(defense))]):
-                    part=defense.head(n)
-                    dc[i].metric(f'{name} allowed (n={len(part)})',f"{part['Points allowed'].mean():.1f}")
-                if len(defense)>1:
-                    st.caption(f"Range: {defense['Points allowed'].min():.0f}–{defense['Points allowed'].max():.0f} points allowed across completed games.")
-                st.bar_chart(defense.iloc[::-1].set_index('Date')['Points allowed'])
-                st.dataframe(defense,use_container_width=True,hide_index=True)
-                st.download_button('Download defensive game sample',defense.to_csv(index=False),file_name='FOXK_team_defense.csv',mime='text/csv')
-        except Exception as e:st.warning(f'ESPN team schedule data unavailable: {e}')
+    except Exception as exc:
+        defense=pd.DataFrame()
+        st.error(f'ESPN team schedule could not be retrieved: {exc}')
+    if defense.empty:
+        st.info('No completed games with valid scores were returned for this team and season. No defensive numbers are estimated.')
+    else:
+        st.caption(f'{def_team} · {season-1}–{str(season)[-2:]} season · {len(defense)} completed games returned')
+        period=st.segmented_control('Research sample',['Last 5','Last 10','Last 20','All games'],default='Last 10',key='foxk_def_period')
+        count={'Last 5':5,'Last 10':10,'Last 20':20,'All games':len(defense)}[period]
+        sample=defense.head(count).copy()
+        st.caption(f'Sample includes {len(sample)} completed games; smaller-than-requested samples are shown as-is.')
+        m=st.columns(4)
+        m[0].metric('Points allowed / game',f"{sample['Points allowed'].mean():.1f}")
+        m[1].metric('Points scored / game',f"{sample['Points scored'].mean():.1f}")
+        m[2].metric('Avg. point margin',f"{sample['Margin'].mean():+.1f}")
+        m[3].metric('Games in sample',len(sample))
+        st.markdown('#### Defensive trend')
+        trend=defense.head(min(20,len(defense))).iloc[::-1]
+        st.line_chart(trend.set_index('Date')[['Points allowed','Points scored']],color=['#ed854d','#c6d0dc'])
+        st.markdown('#### Home vs. away')
+        venues=[]
+        for name in ['Home','Away']:
+            part=sample[sample['Venue']==name]
+            if not part.empty:
+                venues.append({'Venue':name,'Games':len(part),'Points allowed / game':round(part['Points allowed'].mean(),1),
+                               'Points scored / game':round(part['Points scored'].mean(),1),
+                               'Average margin':round(part['Margin'].mean(),1)})
+        if venues:st.dataframe(pd.DataFrame(venues),hide_index=True,use_container_width=True)
+        else:st.caption('ESPN did not return reliable home/away labels for these games.')
+        st.markdown('#### Recent form comparison')
+        comparisons=[]
+        for label,n in [('Last 5',5),('Last 10',10),('Last 20',20),('Season returned',len(defense))]:
+            part=defense.head(n)
+            comparisons.append({'Period':label,'Games':len(part),'Points allowed / game':round(part['Points allowed'].mean(),1),
+                                'Points scored / game':round(part['Points scored'].mean(),1),
+                                'Average margin':round(part['Margin'].mean(),1)})
+        st.dataframe(pd.DataFrame(comparisons),hide_index=True,use_container_width=True)
+        st.markdown('#### Completed game log')
+        display=['Date','Opponent','Venue','Result','Points allowed','Points scored','Margin']
+        st.dataframe(sample[display],hide_index=True,use_container_width=True)
+        st.download_button('Download defensive research (CSV)',defense.to_csv(index=False).encode('utf-8'),
+                           file_name=f'FOXK_{def_team}_{season}_defense.csv',mime='text/csv',key='foxk_def_csv')
+        st.caption('Limitations: unadjusted scores are affected by pace, opponent strength, overtime and game context. No individual defender matchups, position rankings, or future outcomes are inferred.')
     st.divider()
-    st.subheader('Individual defender tracking')
-    st.info('Individual possession-level player-versus-defender stats are not provided by this free data source. FOXK does not infer defensive assignments from team game logs.')
+    st.info('Player-versus-defender assignments and position-specific defensive ratings are not provided by this free ESPN team schedule feed.')
 
 if st.session_state.foxk_section == NAV_ITEMS[5]:
     st.subheader('FOXK matchup research assistant')
