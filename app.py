@@ -29,7 +29,7 @@ def foxk_state_verify(cfg, state):
         raise ValueError("OAuth state signature mismatch")
     payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
     age = time.time() - int(payload["t"])
-    if age < 0 or age > 600 or not isinstance(payload.get("v"), str):
+    if age < -30 or age > 600 or not isinstance(payload.get("v"), str):
         raise ValueError("OAuth state expired")
     return payload["v"]
 
@@ -159,7 +159,7 @@ def foxk_gate():
             st.session_state["foxk_whop_access"] = access
             st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
         except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
-            FOXK_LOG.error("OAuth callback failed: %s", type(exc).__name__)
+            FOXK_LOG.error("OAuth callback state rejected: %s", str(exc))
             st.error("Whop sign-in could not be verified. Check the latest FOXK auth message in Streamlit logs.")
             st.stop()
     user = st.session_state.get("foxk_whop_user")
