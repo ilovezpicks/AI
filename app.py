@@ -11,7 +11,7 @@ FOXK_OAUTH = "https://api.whop.com/oauth"
 
 # OAuth state carries a signed, short-lived PKCE verifier across the browser redirect.
 # The signature prevents tampering without relying on process-local memory.
-import hmac, json, logging
+import hmac, json, logging, re
 FOXK_LOG = logging.getLogger("foxk.auth")
 
 def foxk_state_create(cfg, verifier):
@@ -29,7 +29,7 @@ def foxk_state_verify(cfg, state):
         raise ValueError("OAuth state signature mismatch")
     payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
     age = time.time() - int(payload["t"])
-    if age < -30 or age > 600 or not isinstance(payload.get("v"), str):
+    if age < 0 or age > 600 or not isinstance(payload.get("v"), str):
         raise ValueError("OAuth state expired")
     return payload["v"]
 
@@ -49,40 +49,42 @@ def foxk_login_url(cfg):
     state = foxk_state_create(cfg, verifier)
     params = {
         "response_type": "code", "client_id": cfg["client_id"],
-        "redirect_uri": cfg["redirect_uri"], "scope": "read_user",
+        "redirect_uri": cfg["redirect_uri"], "scope": "openid profile email",
         "state": state, "nonce": foxk_b64(secrets.token_bytes(24)),
         "code_challenge": challenge, "code_challenge_method": "S256",
     }
     return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
 
-
- 
 def foxk_token_exchange(cfg, code, verifier):
-    response = requests.post(
-        FOXK_OAUTH + "/token",
-        json={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": cfg["redirect_uri"],
-            "client_id": cfg["client_id"],
-            "client_secret": cfg["client_secret"],
-            "code_verifier": verifier,
-        },
-        headers={"Accept": "application/json"},
-        timeout=15,
-    )
+    # Keep all secrets and authorization codes server-side.
+    response = requests.post(FOXK_OAUTH + "/token", data={
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
+        "client_secret": cfg["client_secret"], "code_verifier": verifier,
+    }, headers={"Accept": "application/json"}, timeout=15)
     if not response.ok:
+        # Whitelist OAuth error identifiers; NEVER print response text,
+        # full URLs, tokens, request data, or exception messages.
+        import re
+        error_type = "unavailable"
         try:
-            error = response.json().get("error", "unknown")
-        except ValueError:
-            error = "non_json_response"
-        FOXK_LOG.error(
-            "Whop token exchange: HTTP %s; OAuth error=%s",
-            response.status_code,
-            error,
-        )
-    response.raise_for_status()
-    return response.json()
+            payload = response.json()
+            if isinstance(payload, dict):
+                candidate = payload.get("error")
+                if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z_]{1,60}", candidate):
+                    error_type = candidate
+        except (ValueError, TypeError):
+            pass
+        FOXK_LOG.error("Whop token exchange: HTTP %s; OAuth error=%s; response_type=%s",
+                       response.status_code, error_type,
+                       response.headers.get("Content-Type", "unknown").split(";")[0][:40])
+        # Raise a generic exception so requests never embeds request URL details.
+        raise ValueError("Whop rejected token exchange (HTTP %s, %s)" %
+                         (response.status_code, error_type))
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str):
+        raise ValueError("Whop token response missing access token")
+    return payload
 
 def foxk_userinfo(access_token):
     response = requests.get(FOXK_OAUTH + "/userinfo", headers={
@@ -135,12 +137,18 @@ def foxk_gate():
         st.error("VIP verification is not fully configured yet. The research dashboard is locked until the Whop membership API key is added in Streamlit Secrets.")
         st.markdown(f"[Join the free Discord]({FOXK_DISCORD})")
         st.stop()
-    if st.query_params.get("error"):
-        st.query_params.clear()
-        st.warning("Whop sign-in was canceled or could not be completed. Please try again.")
+    def _safe(s):
+        return re.sub(r"[^A-Za-z0-9_ .:-]", "", str(s))[:120]
+
+    err = st.query_params.get("error")
     code = st.query_params.get("code")
     state = st.query_params.get("state")
-    if code or state:
+    if err:
+        FOXK_LOG.error("Whop OAuth error=%s description=%s", _safe(err),
+                       _safe(st.query_params.get("error_description", "")))
+        st.query_params.clear()
+        st.warning(f"Whop sign-in could not be completed ({_safe(err)}). Please try again.")
+    elif code or state:
         # Clear authorization code from the address bar before rendering the app.
         st.query_params.clear()
         try:
@@ -148,7 +156,7 @@ def foxk_gate():
                 raise ValueError("OAuth callback missing code")
             verifier = foxk_state_verify(cfg, state)
         except (ValueError, KeyError, TypeError) as exc:
-            FOXK_LOG.warning("OAuth callback state rejected: %s", type(exc).__name__)
+            FOXK_LOG.warning("OAuth callback state rejected: %s: %s", type(exc).__name__, exc)
             st.error("Sign-in expired or failed security validation. Please try again.")
             st.stop()
         try:
@@ -159,7 +167,7 @@ def foxk_gate():
             st.session_state["foxk_whop_access"] = access
             st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
         except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
-            FOXK_LOG.error("OAuth callback state rejected: %s", str(exc))
+            FOXK_LOG.error("OAuth callback failed: %s", type(exc).__name__)
             st.error("Whop sign-in could not be verified. Check the latest FOXK auth message in Streamlit logs.")
             st.stop()
     user = st.session_state.get("foxk_whop_user")
