@@ -180,6 +180,33 @@ st.title('FOXK  /  NBA STAT LAB')
 st.caption('PLAYER RESEARCH  /  NBA DATA  /  ESPN GAME LOGS')
 with st.expander('Data source & methodology'):
     st.caption('ESPN public basketball endpoints (unofficial). Statistics appear only when the provider returns usable game logs. No fabricated data or guessed matchups.')
+@st.cache_data(ttl=600,show_spinner=False)
+def foxk_today_scoreboard(day):
+    return fetch(BASE+'/scoreboard', {'dates':day, 'limit':100})
+
+with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False):
+    game_day=st.date_input('Schedule date',value=dt.date.today(),key='foxk_schedule_day')
+    try:
+        scoreboard=foxk_today_scoreboard(game_day.strftime('%Y%m%d'))
+        schedule=[]
+        for event in scoreboard.get('events',[]):
+            comp=(event.get('competitions') or [{}])[0]
+            teams=comp.get('competitors',[])
+            home=next((x for x in teams if x.get('homeAway')=='home'),{})
+            away=next((x for x in teams if x.get('homeAway')=='away'),{})
+            if not home or not away: continue
+            schedule.append({
+                'Away':away.get('team',{}).get('abbreviation','?'),
+                'Home':home.get('team',{}).get('abbreviation','?'),
+                'Tipoff (UTC)':event.get('date',''),
+                'Status':event.get('status',{}).get('type',{}).get('description',''),
+                'Score':(str(away.get('score',''))+' – '+str(home.get('score',''))).strip(' –') if event.get('status',{}).get('type',{}).get('completed') else '—'
+            })
+        if schedule: st.dataframe(pd.DataFrame(schedule),hide_index=True,use_container_width=True)
+        else: st.info('No NBA games returned for this date.')
+        st.caption('Schedule and scores come from ESPN. Confirmed starters and injury reports are not provided by this schedule feed.')
+    except Exception as exc: st.warning(f'Schedule feed unavailable: {exc}')
+
 # Global player and season selection; research filters belong to their own sections.
 top_left,top_right=st.columns([3,1])
 with top_left:
@@ -242,14 +269,14 @@ valid=[c for c in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if 
 if not valid:
     st.warning('ESPN returned game events but no parseable numeric player box-score statistics. Provider format may have changed.');st.dataframe(df.head(5));st.stop()
 # Native Streamlit navigation buttons: no st.tabs CSS or unreadable inactive labels.
-NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report']
+NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access']
 if 'foxk_section' not in st.session_state:
     st.session_state.foxk_section = NAV_ITEMS[0]
 
 def choose_foxk_section(section):
     st.session_state.foxk_section = section
 
-for start in (0, 3):
+for start in (0, 3, 6):
     nav_cols = st.columns(3, gap='small')
     for j, section in enumerate(NAV_ITEMS[start:start+3]):
         with nav_cols[j]:
@@ -312,6 +339,21 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
             with a: prop_metric=st.selectbox('Statistic',available,key='foxk_prop20_metric')
             with b: prop_line=st.number_input('Research threshold',min_value=0.0,value=24.5,step=0.5,key='foxk_prop20_line')
             with c: prop_side=st.selectbox('Direction',['Over','Under'],key='foxk_prop20_side')
+            st.markdown('#### Prop Research 3.0 — quick sample comparison')
+            quick_rows=[]
+            for label,n in [('Last 5',5),('Last 10',10),('Last 20',20),('Full season',len(prop_source))]:
+                sample=prop_source[prop_metric].dropna().head(n)
+                if sample.empty: continue
+                over=(sample>prop_line).sum()
+                under=(sample<prop_line).sum()
+                pushes=(sample==prop_line).sum()
+                decisions=len(sample)-pushes
+                hits=over if prop_side=='Over' else under
+                quick_rows.append({'Sample':label,'Games':len(sample),'Average':round(float(sample.mean()),2),
+                                   'Hits':int(hits),'Decisions':int(decisions),
+                                   'Hit rate':f'{hits/decisions:.0%}' if decisions else 'N/A'})
+            if quick_rows: st.dataframe(pd.DataFrame(quick_rows),hide_index=True,use_container_width=True)
+            st.caption('These windows use all available games before applying the matchup filters below. Descriptive results only.')
             f1,f2,f3=st.columns(3)
             with f1:
                 opponents=FOXK_ALL_NBA_TEAMS
@@ -704,5 +746,81 @@ if st.session_state.foxk_section == NAV_ITEMS[5]:
         st.write('- Very small opponent and venue samples are especially unstable.')
         st.write('- ESPN endpoints are unofficial and may omit games or change format.')
         st.caption('Source: ESPN public NBA game-log endpoints. Verify the game log and current availability before using these trends.')
+
+
+
+if st.session_state.foxk_section == NAV_ITEMS[6]:
+    st.subheader('Compare two NBA players')
+    st.caption('Side-by-side recorded game-log averages and threshold hit rates. The first player is your search selection.')
+    others=[p for p in all_players if p['id']!=selected['id']]
+    compare_query=st.text_input('Find second player',key='foxk_compare_search',placeholder='Enter second player name')
+    choices=[p for p in others if compare_query.strip().casefold() in p['name'].casefold()] if compare_query.strip() else []
+    if not compare_query.strip():
+        st.info('Type the second player’s name to compare.')
+    elif len(choices)>25:
+        st.info('Keep typing to narrow the player search.')
+    elif not choices:
+        st.info('No matching player in current ESPN team rosters.')
+    else:
+        other=st.selectbox('Second player',[p['id'] for p in choices],
+                           format_func=lambda pid:next(p['name']+' · '+p['team'] for p in choices if p['id']==pid),
+                           key='foxk_compare_pid')
+        p2=next(p for p in choices if p['id']==other)
+        try:
+            other_df=player_log(p2['id'],season)
+            if other_df.empty: st.info('No second-player game logs available.')
+            else:
+                common=[x for x in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA','MIN']
+                        if x in df and x in other_df and df[x].notna().any() and other_df[x].notna().any()]
+                if common:
+                    cm1,cm2,cm3=st.columns(3)
+                    with cm1: comparison_metric=st.selectbox('Comparison statistic',common,key='foxk_compare_stat')
+                    with cm2: comparison_n=st.selectbox('Games to compare',[5,10,20,40,82],key='foxk_compare_n')
+                    with cm3: comparison_line=st.number_input('Comparison threshold',min_value=0.0,value=20.5,step=.5,key='foxk_compare_line')
+                    result=[]
+                    for p,frame in [(selected,df),(p2,other_df)]:
+                        vals=frame[comparison_metric].dropna().head(comparison_n)
+                        decisions=int((vals!=comparison_line).sum())
+                        hits=int((vals>comparison_line).sum())
+                        result.append({'Player':p['name'],'Games':len(vals),'Average':round(float(vals.mean()),2) if len(vals) else None,
+                                       'Median':round(float(vals.median()),2) if len(vals) else None,
+                                       'Over hits':hits,'Over decisions':decisions,
+                                       'Over hit rate':f'{hits/decisions:.0%}' if decisions else 'N/A'})
+                    st.dataframe(pd.DataFrame(result),hide_index=True,use_container_width=True)
+                else: st.warning('The players have no shared numeric statistics in this season.')
+        except Exception as exc: st.warning(f'Second-player log unavailable: {exc}')
+
+if st.session_state.foxk_section == NAV_ITEMS[7]:
+    st.subheader('Saved prop watchlist')
+    st.caption('This watchlist is stored only in your current browser session. Export CSV to keep it; it is not synced across devices.')
+    if 'foxk_watchlist' not in st.session_state: st.session_state.foxk_watchlist=[]
+    w1,w2,w3=st.columns(3)
+    with w1: w_metric=st.selectbox('Watchlist statistic',valid,key='foxk_watch_metric')
+    with w2: w_line=st.number_input('Watchlist threshold',min_value=0.0,value=20.5,step=.5,key='foxk_watch_line')
+    with w3: w_side=st.selectbox('Watchlist direction',['Over','Under'],key='foxk_watch_side')
+    if st.button('Save this player + prop',type='primary',key='foxk_watch_add'):
+        item={'Player':selected['name'],'Team':selected['team'],'Player ID':selected['id'],
+              'Season':season,'Statistic':w_metric,'Threshold':w_line,'Direction':w_side}
+        if item not in st.session_state.foxk_watchlist:
+            st.session_state.foxk_watchlist.append(item)
+            st.success('Added to this session’s watchlist.')
+        else: st.info('Already saved.')
+    if st.session_state.foxk_watchlist:
+        saved=pd.DataFrame(st.session_state.foxk_watchlist)
+        st.dataframe(saved,hide_index=True,use_container_width=True)
+        st.download_button('Export watchlist CSV',saved.to_csv(index=False).encode('utf-8'),
+                           'FOXK_watchlist.csv','text/csv',key='foxk_watch_export')
+        if st.button('Clear watchlist',key='foxk_watch_clear'):
+            st.session_state.foxk_watchlist=[]
+            st.rerun()
+    else: st.info('Your watchlist is empty.')
+
+if st.session_state.foxk_section == NAV_ITEMS[8]:
+    st.subheader('VIP access — Whop setup')
+    st.warning('This publicly hosted Streamlit app is NOT currently protected by Whop authentication.')
+    st.write('To enforce active paid memberships, FOXK needs a verified Whop login/entitlement flow, a secure backend, and a deployed callback URL.')
+    st.write('Until that integration is configured, keep this app public for testing and do not advertise it as members-only.')
+    st.write('Discord role automation in Whop is separate from protecting the Streamlit website.')
+    st.caption('Do not paste Whop API secrets, signing keys, or private tokens into GitHub or this app.')
 
 st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
