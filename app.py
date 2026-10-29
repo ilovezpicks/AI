@@ -156,24 +156,28 @@ except Exception as e:
     st.error(f'Unable to load the free roster feed. Please retry later. {e}')
     st.stop()
 
-# Player picker is tied to the search query: typing a new name updates the options.
-# Do not preserve the previous player's ID across different searches.
+# One search input is the sole player selector. A unique match opens automatically.
+# Multiple matches require a more specific search rather than silently selecting
+# the wrong athlete.
 query=search.strip().casefold()
 all_players=sorted(players.values(),key=lambda p:p['name'])
-if query:
-    matches=[p for p in all_players if query in p['name'].casefold()]
-    matches.sort(key=lambda p:(not p['name'].casefold().startswith(query),p['name']))
-else:
-    matches=all_players
-if not matches:
-    st.warning('No player found in the current roster index. Try part of the name (e.g. Curry). Retired and unsigned players are not included.')
+if not query:
+    st.info('Enter a player name above to view their research.')
     st.stop()
-# Recreate the select widget when the query changes to avoid stale selections.
-# When the search identifies one player, select that player automatically.
-selected=st.selectbox('Select player',matches,
-    format_func=lambda p:f"{p['name']} · {p['team']}",
-    key='player_select_'+query)
-st.caption(f'{len(matches)} matching player(s). Search above to find a different player.')
+matches=[p for p in all_players if query in p['name'].casefold()]
+if not matches:
+    st.warning('No player found. Try a different spelling or part of the name. Retired and unsigned players may be missing.')
+    st.stop()
+exact=[p for p in matches if p['name'].casefold()==query]
+if len(exact)==1:
+    selected=exact[0]
+elif len(matches)==1:
+    selected=matches[0]
+else:
+    st.info(f'{len(matches)} players match your search. Type more of the name to narrow it down.')
+    st.caption('Examples: ' + ', '.join(f"{p['name']} ({p['team']})" for p in matches[:8]))
+    st.stop()
+st.caption(f"Viewing {selected['name']} · {selected['team']}")
 if roster_errors:st.caption(f'{roster_errors} team roster feeds were unavailable; search may be incomplete.')
 try:
     with st.spinner('Retrieving verified game logs…'):
