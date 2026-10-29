@@ -372,20 +372,22 @@ if st.session_state.foxk_section == NAV_ITEMS[2]:
                 with st.expander('Audit games and appearances'):
                     st.dataframe(base[[x for x in ['date','opponent','All selected teammates recorded playing','PTS','REB','AST','MIN'] if x in base]],hide_index=True,use_container_width=True)
 
+# Shared team lookup must be available in both Career H2H and Team defense.
+team_codes=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GS','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NOP','NY','NYK','OKC','ORL','PHI','PHX','POR','SAC','SA','SAS','TOR','UTAH','UTA','WAS','WSH']
+# ESPN team abbreviations can vary historically, so normalize known alternatives.
+team_aliases={'GSW':{'GSW','GS'},'NOP':{'NOP','NO'},'NYK':{'NYK','NY'},'SAS':{'SAS','SA'},'UTA':{'UTA','UTAH'},'WAS':{'WAS','WSH'}}
+canonical=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NOP','NYK','OKC','ORL','PHI','PHX','POR','SAC','SAS','TOR','UTA','WAS']
+def canonical_team(code):
+    code=str(code).strip().upper()
+    for name,aliases in team_aliases.items():
+        if code in aliases:return name
+    return code
+initial=canonical_team(opponent.strip())
+default_idx=canonical.index(initial) if initial in canonical else 0
+
 if st.session_state.foxk_section == NAV_ITEMS[3]:
     st.subheader('Career head-to-head vs. an NBA team')
     st.caption('Independent of the season and recent-games filters above. FOXK retrieves each selected season separately and shows the full verified game history available from ESPN.')
-    team_codes=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GS','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NOP','NY','NYK','OKC','ORL','PHI','PHX','POR','SAC','SA','SAS','TOR','UTAH','UTA','WAS','WSH']
-    # ESPN team abbreviations can vary historically, so normalize known alternatives.
-    team_aliases={'GSW':{'GSW','GS'},'NOP':{'NOP','NO'},'NYK':{'NYK','NY'},'SAS':{'SAS','SA'},'UTA':{'UTA','UTAH'},'WAS':{'WAS','WSH'}}
-    canonical=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NOP','NYK','OKC','ORL','PHI','PHX','POR','SAC','SAS','TOR','UTA','WAS']
-    def canonical_team(code):
-        code=str(code).strip().upper()
-        for name,aliases in team_aliases.items():
-            if code in aliases:return name
-        return code
-    initial=canonical_team(opponent.strip())
-    default_idx=canonical.index(initial) if initial in canonical else 0
     h2h_team=st.selectbox('Head-to-head opponent',canonical,index=default_idx,key='foxk_h2h_opponent')
     # End-year values, e.g. 2027 means the 2026-27 season.
     h2h_years=st.multiselect('Historical seasons to include (NBA season ending year)',list(range(2027,2010,-1)),default=list(range(2027,2016,-1)),key='foxk_h2h_years',help='Default: 2016–17 through 2026–27. Select older seasons to extend history. Seasons before the player entered the NBA will have no games.')
