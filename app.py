@@ -55,36 +55,28 @@ def foxk_login_url(cfg):
     }
     return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
 
+
 def foxk_token_exchange(cfg, code, verifier):
-    # Keep all secrets and authorization codes server-side.
-    response = requests.post(FOXK_OAUTH + "/token", data={
-        "grant_type": "authorization_code", "code": code,
-        "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
-        "client_secret": cfg["client_secret"], "code_verifier": verifier,
-    }, headers={"Accept": "application/json"}, timeout=15)
+    response = requests.post(
+        FOXK_OAUTH + "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": cfg["redirect_uri"],
+            "code_verifier": verifier,
+        },
+        auth=(cfg["client_id"], cfg["client_secret"]),
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
     if not response.ok:
-        # Whitelist OAuth error identifiers; NEVER print response text,
-        # full URLs, tokens, request data, or exception messages.
-        import re
-        error_type = "unavailable"
-        try:
-            payload = response.json()
-            if isinstance(payload, dict):
-                candidate = payload.get("error")
-                if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z_]{1,60}", candidate):
-                    error_type = candidate
-        except (ValueError, TypeError):
-            pass
-        FOXK_LOG.error("Whop token exchange: HTTP %s; OAuth error=%s; response_type=%s",
-                       response.status_code, error_type,
-                       response.headers.get("Content-Type", "unknown").split(";")[0][:40])
-        # Raise a generic exception so requests never embeds request URL details.
-        raise ValueError("Whop rejected token exchange (HTTP %s, %s)" %
-                         (response.status_code, error_type))
-    payload = response.json()
-    if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str):
-        raise ValueError("Whop token response missing access token")
-    return payload
+        FOXK_LOG.error(
+            "Whop token exchange failed: HTTP %s",
+            response.status_code,
+        )
+    response.raise_for_status()
+    return response.json()
+
 
 def foxk_userinfo(access_token):
     response = requests.get(FOXK_OAUTH + "/userinfo", headers={
