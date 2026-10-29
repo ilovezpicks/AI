@@ -3,18 +3,38 @@ import requests, pandas as pd, datetime as dt, time
 
 st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
 # FOXK Whop VIP gate — runs before any research data is fetched.
-import base64, hashlib, hmac, secrets, threading, urllib.parse, logging
+import base64, hashlib, secrets, threading, urllib.parse
 
 FOXK_JOIN = "https://whop.com/discord-gg-50b0/foxk-vip-picks/"
 FOXK_DISCORD = "https://discord.gg/fX3BpQ5T6"
 FOXK_OAUTH = "https://api.whop.com/oauth"
+
+# OAuth state carries a signed, short-lived PKCE verifier across the browser redirect.
+# The signature prevents tampering without relying on process-local memory.
+import hmac, json, logging
 FOXK_LOG = logging.getLogger("foxk.auth")
+
+def foxk_state_create(cfg, verifier):
+    payload = {"v": verifier, "t": int(time.time()), "r": foxk_b64(secrets.token_bytes(16))}
+    encoded = foxk_b64(json.dumps(payload, separators=(",", ":")).encode())
+    signature = foxk_b64(hmac.new(cfg["client_secret"].encode(), encoded.encode(), hashlib.sha256).digest())
+    return encoded + "." + signature
+
+def foxk_state_verify(cfg, state):
+    if not isinstance(state, str) or len(state) > 1500 or "." not in state:
+        raise ValueError("Missing or malformed OAuth state")
+    encoded, signature = state.split(".", 1)
+    expected = foxk_b64(hmac.new(cfg["client_secret"].encode(), encoded.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("OAuth state signature mismatch")
+    payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+    age = time.time() - int(payload["t"])
+    if age < 0 or age > 600 or not isinstance(payload.get("v"), str):
+        raise ValueError("OAuth state expired")
+    return payload["v"]
 
 def foxk_b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-def foxk_unb64(value):
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 def foxk_config():
     try:
@@ -23,46 +43,10 @@ def foxk_config():
     except (KeyError, FileNotFoundError):
         return None, "", ""
 
-def foxk_oauth_key(cfg):
-    # The confidential client secret never leaves the server.
-    return hmac.new(cfg["client_secret"].encode(), b"foxk-oauth-state-v2", hashlib.sha256).digest()
-
-def foxk_pkce_verifier(cfg, nonce):
-    # Reconstruct PKCE verifier from server secret and a fresh nonce, rather than
-    # keeping it in a process-local cache that disappears on Streamlit redirects.
-    return foxk_b64(hmac.new(foxk_oauth_key(cfg), b"pkce:" + nonce, hashlib.sha256).digest())
-
-def foxk_create_state(cfg):
-    nonce = secrets.token_bytes(24)
-    issued = str(int(time.time())).encode("ascii")
-    payload = issued + b"." + foxk_b64(nonce).encode("ascii")
-    signature = hmac.new(foxk_oauth_key(cfg), b"state:" + payload, hashlib.sha256).digest()
-    return foxk_b64(payload + b"." + foxk_b64(signature).encode("ascii")), nonce
-
-def foxk_verify_state(cfg, state):
-    if not isinstance(state, str) or len(state) > 500:
-        raise ValueError("Missing or malformed state")
-    try:
-        payload = foxk_unb64(state)
-        issued, nonce_text, signature_text = payload.split(b".")
-        signed = issued + b"." + nonce_text
-        expected = hmac.new(foxk_oauth_key(cfg), b"state:" + signed, hashlib.sha256).digest()
-        if not hmac.compare_digest(foxk_unb64(signature_text.decode("ascii")), expected):
-            raise ValueError("State signature mismatch")
-        age = time.time() - int(issued)
-        if age < -60 or age > 600:
-            raise ValueError("State expired")
-        nonce = foxk_unb64(nonce_text.decode("ascii"))
-        if len(nonce) != 24:
-            raise ValueError("Invalid state nonce")
-        return foxk_pkce_verifier(cfg, nonce)
-    except (UnicodeError, ValueError, TypeError) as exc:
-        raise ValueError("Invalid OAuth state") from exc
-
 def foxk_login_url(cfg):
-    state, nonce = foxk_create_state(cfg)
-    verifier = foxk_pkce_verifier(cfg, nonce)
+    verifier = foxk_b64(secrets.token_bytes(48))
     challenge = foxk_b64(hashlib.sha256(verifier.encode()).digest())
+    state = foxk_state_create(cfg, verifier)
     params = {
         "response_type": "code", "client_id": cfg["client_id"],
         "redirect_uri": cfg["redirect_uri"], "scope": "openid profile email",
@@ -72,24 +56,23 @@ def foxk_login_url(cfg):
     return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
 
 def foxk_token_exchange(cfg, code, verifier):
-    # Whop OAuth uses a JSON request including the confidential client secret.
-    response = requests.post(FOXK_OAUTH + "/token", json={
+    # OAuth 2.0 token requests use application/x-www-form-urlencoded.
+    response = requests.post(FOXK_OAUTH + "/token", data={
         "grant_type": "authorization_code", "code": code,
         "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
         "client_secret": cfg["client_secret"], "code_verifier": verifier,
-    }, timeout=15)
+    }, headers={"Accept": "application/json"}, timeout=15)
     if not response.ok:
+        # Never log the response body: providers may echo sensitive values.
         FOXK_LOG.error("Whop token exchange failed: HTTP %s", response.status_code)
-        response.raise_for_status()
+    response.raise_for_status()
     return response.json()
 
 def foxk_userinfo(access_token):
     response = requests.get(FOXK_OAUTH + "/userinfo", headers={
         "Authorization": "Bearer " + access_token,
     }, timeout=15)
-    if not response.ok:
-        FOXK_LOG.error("Whop userinfo failed: HTTP %s", response.status_code)
-        response.raise_for_status()
+    response.raise_for_status()
     data = response.json()
     if not str(data.get("sub", "")).startswith("user_"):
         raise ValueError("Whop did not return a valid user identity")
@@ -100,15 +83,13 @@ def foxk_active_member(api_key, company_id, user_id, product_id):
     # Explicitly recheck the returned user, product and status, regardless of filters.
     cursor = None
     for _ in range(15):
-        params = {"account_id": company_id, "user_id": user_id,
-                  "product_ids": product_id, "first": 50}
+        params = {"account_id": company_id, "user_ids[]": user_id,
+                  "product_ids[]": product_id, "first": 50}
         if cursor:
             params["after"] = cursor
         response = requests.get("https://api.whop.com/api/v1/memberships",
             params=params, headers={"Authorization": "Bearer " + api_key}, timeout=15)
-        if not response.ok:
-            FOXK_LOG.error("Whop membership lookup failed: HTTP %s", response.status_code)
-            response.raise_for_status()
+        response.raise_for_status()
         payload = response.json()
         for membership in payload.get("data", []):
             if (membership.get("user") or {}).get("id") != user_id:
@@ -117,15 +98,6 @@ def foxk_active_member(api_key, company_id, user_id, product_id):
                 continue
             if membership.get("status") != "active":
                 continue
-            # Never allow an explicitly ended membership even if status lags.
-            end = membership.get("renewal_period_end")
-            if end:
-                try:
-                    ending = dt.datetime.fromisoformat(end.replace("Z", "+00:00"))
-                    if ending <= dt.datetime.now(dt.timezone.utc):
-                        continue
-                except (ValueError, TypeError):
-                    raise ValueError("Invalid membership renewal date")
             return True
         page = payload.get("page_info") or {}
         if not page.get("has_next_page"):
@@ -153,18 +125,15 @@ def foxk_gate():
     code = st.query_params.get("code")
     state = st.query_params.get("state")
     if code or state:
-        # State is authenticated and PKCE verifier is reconstructed without
-        # relying on a Streamlit process-local cache across page navigation.
-        try:
-            verifier = foxk_verify_state(cfg, state)
-        except ValueError:
-            st.query_params.clear()
-            FOXK_LOG.warning("OAuth callback rejected: invalid or expired signed state")
-            st.error("Sign-in expired or failed security validation. Please try again.")
-            st.stop()
+        # Clear authorization code from the address bar before rendering the app.
         st.query_params.clear()
-        if not isinstance(code, str) or not code:
-            st.error("Whop did not return an authorization code. Please try again.")
+        try:
+            if not isinstance(code, str):
+                raise ValueError("OAuth callback missing code")
+            verifier = foxk_state_verify(cfg, state)
+        except (ValueError, KeyError, TypeError) as exc:
+            FOXK_LOG.warning("OAuth callback state rejected: %s", type(exc).__name__)
+            st.error("Sign-in expired or failed security validation. Please try again.")
             st.stop()
         try:
             tokens = foxk_token_exchange(cfg, code, verifier)
@@ -173,8 +142,8 @@ def foxk_gate():
             st.session_state["foxk_whop_user"] = identity["sub"]
             st.session_state["foxk_whop_access"] = access
             st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
-        except (requests.RequestException, KeyError, ValueError) as exc:
-            FOXK_LOG.error("OAuth callback failed during token/userinfo: %s", type(exc).__name__)
+        except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
+            FOXK_LOG.error("OAuth callback failed: %s", type(exc).__name__)
             st.error("Whop sign-in could not be verified. Check the latest FOXK auth message in Streamlit logs.")
             st.stop()
     user = st.session_state.get("foxk_whop_user")
@@ -185,31 +154,22 @@ def foxk_gate():
             identity = foxk_userinfo(access)
             if identity["sub"] != user:
                 raise ValueError("Whop identity changed")
-            # Owner can enter without buying their own product, but ONLY after
-            # Whop verifies the signed-in account through /oauth/userinfo.
+            # Owner bypass is valid only for the verified Whop user ID configured
+            # privately in Streamlit Secrets, never a query parameter or username.
             owner_id = str(st.secrets["whop"].get("owner_user_id", "")).strip()
-            # Only a stable Whop user ID from server-side secrets can be owner.
-            # Never grant owner access from a username alone.
-            is_owner = bool(owner_id.startswith("user_") and hmac.compare_digest(user, owner_id))
-            allowed = is_owner or foxk_active_member(api_key, company_id, user, cfg["product_id"])
-            if is_owner:
-                FOXK_LOG.info("Owner identity verified through Whop userinfo")
-        except (requests.RequestException, ValueError, KeyError) as exc:
-            FOXK_LOG.error("VIP access check failed: %s", type(exc).__name__)
+            allowed = (bool(owner_id) and user == owner_id) or foxk_active_member(api_key, company_id, user, cfg["product_id"])
+        except (requests.RequestException, ValueError, KeyError):
             st.error("We could not verify your VIP membership right now. Access is temporarily locked. Please retry shortly.")
             st.stop()
         if allowed:
             with st.sidebar:
-                st.caption("FOXK · Owner access" if is_owner else "FOXK VIP · Verified with Whop")
+                st.caption("FOXK VIP · Verified with Whop")
                 if st.button("Sign out", key="foxk_whop_signout"):
                     for key in ("foxk_whop_user", "foxk_whop_access", "foxk_whop_expires"):
                         st.session_state.pop(key, None)
                     st.rerun()
             return
         st.markdown("<div class='foxk-login'><h2>FOXK VIP membership required</h2><p>Your Whop account does not currently have an active FOXK VIP PICKS membership. The Stat Lab remains locked.</p></div>", unsafe_allow_html=True)
-        if not str(st.secrets["whop"].get("owner_user_id", "")).strip():
-            st.info("FOXK owner setup: if you own this Whop account, copy the verified user ID below and add it as owner_user_id under [whop] in Streamlit Secrets. Only the site administrator can change Secrets.")
-            st.code(user, language=None)
         st.link_button("Get FOXK VIP", FOXK_JOIN, type="primary")
         st.link_button("Join free Discord", FOXK_DISCORD)
         if st.button("Sign in with a different Whop account"):
