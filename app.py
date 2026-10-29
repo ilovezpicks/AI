@@ -3,11 +3,12 @@ import requests, pandas as pd, datetime as dt, time
 
 st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
 # FOXK Whop VIP gate — runs before any research data is fetched.
-import base64, hashlib, secrets, threading, urllib.parse
+import base64, hashlib, secrets, threading, urllib.parse, logging
 
 FOXK_JOIN = "https://whop.com/discord-gg-50b0/foxk-vip-picks/"
 FOXK_DISCORD = "https://discord.gg/fX3BpQ5T6"
 FOXK_OAUTH = "https://api.whop.com/oauth"
+FOXK_LOG = logging.getLogger("foxk.auth")
 
 @st.cache_resource
 def foxk_oauth_pending():
@@ -45,19 +46,24 @@ def foxk_login_url(cfg):
     return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
 
 def foxk_token_exchange(cfg, code, verifier):
+    # Whop OAuth uses a JSON request including the confidential client secret.
     response = requests.post(FOXK_OAUTH + "/token", json={
         "grant_type": "authorization_code", "code": code,
         "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
         "client_secret": cfg["client_secret"], "code_verifier": verifier,
     }, timeout=15)
-    response.raise_for_status()
+    if not response.ok:
+        FOXK_LOG.error("Whop token exchange failed: HTTP %s", response.status_code)
+        response.raise_for_status()
     return response.json()
 
 def foxk_userinfo(access_token):
     response = requests.get(FOXK_OAUTH + "/userinfo", headers={
         "Authorization": "Bearer " + access_token,
     }, timeout=15)
-    response.raise_for_status()
+    if not response.ok:
+        FOXK_LOG.error("Whop userinfo failed: HTTP %s", response.status_code)
+        response.raise_for_status()
     data = response.json()
     if not str(data.get("sub", "")).startswith("user_"):
         raise ValueError("Whop did not return a valid user identity")
@@ -68,13 +74,15 @@ def foxk_active_member(api_key, company_id, user_id, product_id):
     # Explicitly recheck the returned user, product and status, regardless of filters.
     cursor = None
     for _ in range(15):
-        params = {"account_id": company_id, "user_ids[]": user_id,
-                  "product_ids[]": product_id, "first": 50}
+        params = {"account_id": company_id, "user_id": user_id,
+                  "product_ids": product_id, "first": 50}
         if cursor:
             params["after"] = cursor
         response = requests.get("https://api.whop.com/api/v1/memberships",
             params=params, headers={"Authorization": "Bearer " + api_key}, timeout=15)
-        response.raise_for_status()
+        if not response.ok:
+            FOXK_LOG.error("Whop membership lookup failed: HTTP %s", response.status_code)
+            response.raise_for_status()
         payload = response.json()
         for membership in payload.get("data", []):
             if (membership.get("user") or {}).get("id") != user_id:
@@ -83,6 +91,15 @@ def foxk_active_member(api_key, company_id, user_id, product_id):
                 continue
             if membership.get("status") != "active":
                 continue
+            # Never allow an explicitly ended membership even if status lags.
+            end = membership.get("renewal_period_end")
+            if end:
+                try:
+                    ending = dt.datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    if ending <= dt.datetime.now(dt.timezone.utc):
+                        continue
+                except (ValueError, TypeError):
+                    raise ValueError("Invalid membership renewal date")
             return True
         page = payload.get("page_info") or {}
         if not page.get("has_next_page"):
@@ -115,6 +132,7 @@ def foxk_gate():
             attempt = pending["requests"].pop(state, None) if isinstance(state, str) else None
         st.query_params.clear()
         if not (isinstance(code, str) and attempt and time.time() - attempt["created"] < 600):
+            FOXK_LOG.warning("OAuth callback rejected: state missing or expired")
             st.error("Sign-in expired or failed security validation. Please try again.")
             st.stop()
         try:
@@ -124,8 +142,9 @@ def foxk_gate():
             st.session_state["foxk_whop_user"] = identity["sub"]
             st.session_state["foxk_whop_access"] = access
             st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
-        except (requests.RequestException, KeyError, ValueError):
-            st.error("Whop sign-in could not be verified. Please try again.")
+        except (requests.RequestException, KeyError, ValueError) as exc:
+            FOXK_LOG.error("OAuth callback failed during token/userinfo: %s", type(exc).__name__)
+            st.error("Whop sign-in could not be verified. Check the latest FOXK auth message in Streamlit logs.")
             st.stop()
     user = st.session_state.get("foxk_whop_user")
     access = st.session_state.get("foxk_whop_access")
@@ -135,13 +154,21 @@ def foxk_gate():
             identity = foxk_userinfo(access)
             if identity["sub"] != user:
                 raise ValueError("Whop identity changed")
-            allowed = foxk_active_member(api_key, company_id, user, cfg["product_id"])
-        except (requests.RequestException, ValueError, KeyError):
+            # Owner can enter without buying their own product, but ONLY after
+            # Whop verifies the signed-in account through /oauth/userinfo.
+            owner_id = str(st.secrets["whop"].get("owner_user_id", "")).strip()
+            username = str(identity.get("preferred_username") or identity.get("username") or "").lstrip("@").lower()
+            is_owner = (user == owner_id and owner_id.startswith("user_")) if owner_id else (username == "zazvo")
+            allowed = is_owner or foxk_active_member(api_key, company_id, user, cfg["product_id"])
+            if is_owner:
+                FOXK_LOG.info("Owner identity verified through Whop userinfo")
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            FOXK_LOG.error("VIP access check failed: %s", type(exc).__name__)
             st.error("We could not verify your VIP membership right now. Access is temporarily locked. Please retry shortly.")
             st.stop()
         if allowed:
             with st.sidebar:
-                st.caption("FOXK VIP · Verified with Whop")
+                st.caption("FOXK · Owner access" if is_owner else "FOXK VIP · Verified with Whop")
                 if st.button("Sign out", key="foxk_whop_signout"):
                     for key in ("foxk_whop_user", "foxk_whop_access", "foxk_whop_expires"):
                         st.session_state.pop(key, None)
