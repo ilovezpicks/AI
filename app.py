@@ -80,7 +80,7 @@ with st.sidebar:
     window=st.selectbox('Recent games',[5,10,15,20,40,82],index=1)
     opponent=st.text_input('Opponent abbreviation (optional)',placeholder='ATL')
     location=st.selectbox('Location',['All','Home','Away'])
-    stat=st.selectbox('Prop stat',['PTS','REB','AST','3PM','STL','BLK'])
+    stat=st.selectbox('Prop stat',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'])
     line=st.number_input('Prop line',min_value=0.0,value=24.5,step=0.5)
 
 try:
@@ -123,8 +123,12 @@ if location!='All' and 'homeAway' in df.columns:
     df=df[df['homeAway'].astype(str).str.lower()==location.lower()]
 if df.empty:
     st.warning('No recorded games match these filters.');st.stop()
-df=df.head(window)
-valid=[c for c in ['PTS','REB','AST','3PM','STL','BLK'] if c in df and df[c].notna().any()]
+df=df.head(window).copy()
+# Combined props require all contributing box-score stats to be present.
+for combined, parts in {'PRA':['PTS','REB','AST'], 'PR':['PTS','REB'], 'PA':['PTS','AST'], 'RA':['REB','AST']}.items():
+    if all(part in df.columns for part in parts):
+        df[combined]=df[parts].sum(axis=1,min_count=len(parts))
+valid=[c for c in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if c in df and df[c].notna().any()]
 if not valid:
     st.warning('ESPN returned game events but no parseable numeric player box-score statistics. Provider format may have changed.');st.dataframe(df.head(5));st.stop()
 st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
@@ -141,6 +145,85 @@ st.subheader('Verified game log')
 show=[c for c in ['date','opponent','homeAway','result','MIN','PTS','REB','AST','3PM','STL','BLK'] if c in df.columns]
 st.dataframe(df[show],use_container_width=True,hide_index=True)
 st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
+st.divider()
+st.subheader('Advanced player-prop research')
+st.caption('PRA, PR, PA and RA are also available in the sidebar Prop stat selector above.')
+st.caption('Uses the selected season’s actual ESPN game logs. Filters below apply to this analyzer only, not career head-to-head history.')
+prop_source=player_log(selected['id'],season).copy()
+if prop_source.empty:
+    st.info('No verified season game logs available for advanced prop research.')
+else:
+    if 'event_id' in prop_source.columns:
+        prop_source=prop_source.drop_duplicates(subset=['event_id'])
+    prop_source['PRA']=prop_source[['PTS','REB','AST']].sum(axis=1,min_count=3) if all(k in prop_source for k in ['PTS','REB','AST']) else float('nan')
+    prop_source['PR']=prop_source[['PTS','REB']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['PTS','REB']) else float('nan')
+    prop_source['PA']=prop_source[['PTS','AST']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['PTS','AST']) else float('nan')
+    prop_source['RA']=prop_source[['REB','AST']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['REB','AST']) else float('nan')
+    available=[k for k in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if k in prop_source and prop_source[k].notna().any()]
+    if not available:
+        st.warning('ESPN returned no numeric statistics for advanced prop calculations.')
+    else:
+        a,b,c=st.columns(3)
+        with a: prop_metric=st.selectbox('Stat to research',available,key='foxk_adv_metric')
+        with b: prop_line=st.number_input('Research line',min_value=0.0,value=24.5,step=0.5,key='foxk_adv_line')
+        with c: prop_side=st.selectbox('Result', ['Over','Under'],key='foxk_adv_side')
+        f1,f2,f3=st.columns(3)
+        with f1:
+            opps=sorted(set(prop_source['opponent'].dropna().astype(str).str.upper())) if 'opponent' in prop_source else []
+            prop_opponent=st.selectbox('Opponent',['All']+opps,key='foxk_adv_opponent')
+        with f2: prop_location=st.selectbox('Home / away',['All','Home','Away'],key='foxk_adv_location')
+        with f3: prop_window=st.selectbox('Sample window',['Full season',5,10,15,20,40,82],key='foxk_adv_window')
+        f4,f5=st.columns(2)
+        with f4:
+            weekdays=['All','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+            prop_weekday=st.selectbox('Day of week',weekdays,key='foxk_adv_weekday')
+        with f5:
+            rest_choice=st.selectbox('Rest between recorded appearances',['All','0 days (back-to-back)','1 day','2+ days'],key='foxk_adv_rest')
+        # Derive rest from dated recorded appearances, before narrowing to opponent or venue.
+        if 'date' in prop_source and prop_source['date'].notna().any():
+            prop_source=prop_source.sort_values('date')
+            prop_source['rest_days']=(prop_source['date'].dt.normalize()-prop_source['date'].shift(1).dt.normalize()).dt.days-1
+            prop_source['weekday']=prop_source['date'].dt.day_name()
+            prop_source=prop_source.sort_values('date',ascending=False)
+        filtered=prop_source.copy()
+        if prop_opponent!='All' and 'opponent' in filtered:
+            filtered=filtered[filtered['opponent'].astype(str).str.upper()==prop_opponent]
+        if prop_location!='All' and 'homeAway' in filtered:
+            filtered=filtered[filtered['homeAway'].astype(str).str.lower()==prop_location.lower()]
+        if prop_weekday!='All':
+            if 'weekday' in filtered: filtered=filtered[filtered['weekday']==prop_weekday]
+            else: filtered=filtered.iloc[0:0]
+        if rest_choice!='All':
+            if 'rest_days' not in filtered: filtered=filtered.iloc[0:0]
+            elif rest_choice.startswith('0'): filtered=filtered[filtered['rest_days']==0]
+            elif rest_choice.startswith('1'): filtered=filtered[filtered['rest_days']==1]
+            else: filtered=filtered[filtered['rest_days']>=2]
+        if prop_window!='Full season': filtered=filtered.head(int(prop_window))
+        filtered=filtered[filtered[prop_metric].notna()].copy()
+        if filtered.empty:
+            st.warning('No verified games match this combination of filters. Try broadening the selection.')
+        else:
+            vals=filtered[prop_metric]
+            hits=vals>prop_line if prop_side=='Over' else vals<prop_line
+            pushes=vals==prop_line
+            decisions=int((~pushes).sum())
+            successes=int(hits.sum())
+            x,y,z=st.columns(3)
+            x.metric('Games with stats',len(filtered))
+            y.metric(f'{prop_metric} average',f'{vals.mean():.1f}')
+            z.metric(f'{prop_side} {prop_line:g} hit rate',f'{successes}/{decisions} ({successes/decisions:.1%})' if decisions else 'No decisions')
+            st.caption(f'{int(pushes.sum())} push(es) excluded from hit-rate denominator. Historical frequency only, not a forecast. Rest is estimated from consecutive recorded appearances, NOT confirmed team rest or travel schedule.')
+            chart=filtered.sort_values('date').copy() if 'date' in filtered else filtered.copy()
+            chart['Line']=prop_line
+            chart['Actual']=chart[prop_metric]
+            chart['Hit']=hits.reindex(chart.index).map({True:'Hit',False:'Miss'})
+            st.markdown('**Actual game results vs. research line**')
+            st.bar_chart(chart.set_index('date')[['Actual','Line']] if 'date' in chart and chart['date'].notna().all() else chart[['Actual','Line']])
+            cols=[k for k in ['date','opponent','homeAway','weekday','rest_days','MIN','PTS','REB','AST','3PM','STL','BLK',prop_metric,'Hit'] if k in chart]
+            cols=list(dict.fromkeys(cols))
+            st.dataframe(chart[cols].sort_values('date',ascending=False) if 'date' in cols else chart[cols],use_container_width=True,hide_index=True)
+            st.download_button('Download filtered prop research (CSV)',chart.to_csv(index=False).encode(),file_name='FOXK_prop_research.csv',mime='text/csv',key='foxk_adv_csv')
+
 st.divider()
 st.subheader('Teammate availability comparison')
 st.caption('Compares games where a teammate is recorded playing versus games without a recorded appearance. A missing appearance is NOT proof of an injury or official OUT designation.')
