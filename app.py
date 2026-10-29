@@ -5,6 +5,7 @@ st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide'
 st.markdown('\n<style>\n#MainMenu,footer{visibility:hidden}\n[data-testid="stHeader"]{background:#101316!important;height:3rem}\n.stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#101316!important;color:#f0f1f2!important}\n.block-container{max-width:1320px!important;padding-top:1.6rem!important;padding-bottom:4rem!important}\nh1,h2,h3{font-family:Arial,Helvetica,sans-serif!important;letter-spacing:-.035em!important;color:#f4f5f6!important}\nh1{font-size:2.2rem!important;font-weight:800!important;margin-bottom:.1rem!important}\nh2{font-size:1.6rem!important}\np,li,label,span{line-height:1.5}\n[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{color:#aab2bb!important;opacity:1!important}\n[data-testid="stSidebar"]{background:#191d21!important;border-right:1px solid #343a40!important}\n[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,[data-testid="stSidebar"] p,[data-testid="stSidebar"] label{color:#f0f1f2!important}\n[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{color:#d5d9dd!important;font-weight:600!important}\n[data-testid="stSidebar"] input{color:#f0f1f2!important;background:#262b30!important}\n[data-testid="stSidebar"] input::placeholder{color:#a6b0ba!important;opacity:1!important}\n[data-baseweb="select"]>div,[data-baseweb="input"]>div{background:#262b30!important;border:1px solid #454c54!important;border-radius:7px!important}\n[data-baseweb="select"] *,[data-baseweb="input"] input{color:#f0f1f2!important}\n[data-baseweb="select"] svg{fill:#d5d9dd!important}\n[data-baseweb="tab-list"]{gap:0!important;border-bottom:1px solid #343a40!important;flex-wrap:wrap!important}\nbutton[data-baseweb="tab"]{background:transparent!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;padding:13px 16px!important}\nbutton[data-baseweb="tab"] *,button[data-baseweb="tab"]{color:#b5bdc5!important;opacity:1!important;font-weight:650!important}\nbutton[data-baseweb="tab"][aria-selected="true"]{border-bottom:2px solid #ed854d!important}\nbutton[data-baseweb="tab"][aria-selected="true"] *{color:#fff!important}\nbutton[data-baseweb="tab"]:hover *{color:#fff!important}\n[data-testid="stMetric"]{background:#1c2126!important;border:1px solid #363d44!important;border-radius:9px!important;padding:18px 20px!important}\n[data-testid="stMetricLabel"] *,[data-testid="stMetricLabel"]{color:#b8c2cb!important;font-weight:650!important;font-size:.82rem!important}\n[data-testid="stMetricValue"] *,[data-testid="stMetricValue"]{color:#f6f7f8!important;font-weight:750!important}\n[data-testid="stDataFrame"]{border:1px solid #363d44!important;border-radius:8px!important}\n[data-testid="stAlert"]{border:1px solid #38414a!important;border-radius:8px!important}\n.stButton button,[data-testid="stDownloadButton"] button{border-radius:7px!important}\nhr{border-color:#343a40!important}\n@media(max-width:768px){.block-container{padding:1rem!important}h1{font-size:1.65rem!important}button[data-baseweb="tab"]{padding:9px!important}}\n</style>\n',unsafe_allow_html=True)
 st.markdown('<style>\n[data-testid="stTabs"] [role="tablist"]{display:flex!important;flex-wrap:wrap!important;gap:4px!important;border-bottom:1px solid #363c42!important}\n[data-testid="stTabs"] button[role="tab"]{color:#d1d6dd!important;opacity:1!important;background:transparent!important;border:0!important;border-bottom:3px solid transparent!important;padding:12px 15px!important;min-height:46px!important;white-space:nowrap!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] [role="tab"] p,[data-testid="stTabs"] [role="tab"] span{color:inherit!important;opacity:1!important;font-size:14px!important;font-weight:650!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[role="tab"][aria-selected="true"]{color:#fff!important;border-bottom:3px solid #f28c50!important;background:#202428!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#252a2f!important}\n[data-testid="stTabs"] button[role="tab"]:focus-visible{outline:2px solid #f28c50!important;outline-offset:-2px!important}\n[data-testid="stTabs"] [data-baseweb="tab-highlight"]{background:#f28c50!important}\n</style>', unsafe_allow_html=True)
 st.markdown('\n<style>\n/* FOXK contrast polish: scoped to Streamlit\'s actual widgets */\n[data-testid="stTabs"] [data-baseweb="tab-list"]{gap:3px!important;border-bottom:1px solid #41474e!important}\n[data-testid="stTabs"] button[role="tab"], [data-testid="stTabs"] button[data-baseweb="tab"]{color:#d4d9df!important;opacity:1!important;font-weight:650!important;border-radius:0!important;transition:color .12s ease,border-color .12s ease!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] button[data-baseweb="tab"] *{color:inherit!important;opacity:1!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[aria-selected="true"]{color:#fff!important;border-bottom:2px solid #f18a4b!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#20252a!important}\n/* Labels in main panel */\n[data-testid="stMain"] [data-testid="stWidgetLabel"] p,[data-testid="stMain"] [data-testid="stWidgetLabel"] label,[data-testid="stMain"] [data-testid="stWidgetLabel"]{color:#dbe0e6!important;opacity:1!important}\n/* Select widgets: dark throughout, including arrow section */\n[data-testid="stSelectbox"] [data-baseweb="select"]>div,[data-testid="stSelectbox"] [data-baseweb="select"]>div>div{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div{border:1px solid #4b545d!important;border-radius:7px!important;box-shadow:none!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] *{color:#f6f7f8!important;-webkit-text-fill-color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] svg{fill:#dce1e6!important;color:#dce1e6!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] [role="button"]{background:transparent!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div:focus-within{border-color:#f18a4b!important}\n[data-baseweb="popover"] [role="listbox"], [data-baseweb="popover"] ul{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]:hover,[data-baseweb="popover"] [aria-selected="true"]{background:#39424b!important}\n/* Number input buttons and text */\n[data-testid="stNumberInput"] [data-baseweb="input"]>div,[data-testid="stNumberInput"] button{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stNumberInput"] svg{fill:#dce1e6!important}\n/* Reduce visual gaps without changing content */\n[data-testid="stMain"] .block-container{padding-top:1.1rem!important}\n[data-testid="stMain"] [data-testid="stVerticalBlock"]{row-gap:.7rem}\n@media(max-width:800px){[data-testid="stTabs"] button[role="tab"]{padding:10px 12px!important}}\n</style>\n', unsafe_allow_html=True)
+st.markdown('<style>\n/* Native button navigation with reliable contrast */\ndiv[class*="st-key-foxk_nav_"] button {min-height:45px!important;border-radius:8px!important;font-weight:700!important;font-size:14px!important;opacity:1!important;transition:background .15s ease!important}\ndiv[class*="st-key-foxk_nav_"] button[kind="secondary"] {background:#252b31!important;border:1px solid #4a535d!important;color:#f0f2f5!important}\ndiv[class*="st-key-foxk_nav_"] button[kind="secondary"] * {color:#f0f2f5!important;opacity:1!important}\ndiv[class*="st-key-foxk_nav_"] button[kind="primary"] {background:#ed854d!important;border:1px solid #ed854d!important;color:#151719!important}\ndiv[class*="st-key-foxk_nav_"] button[kind="primary"] * {color:#151719!important;opacity:1!important}\ndiv[class*="st-key-foxk_nav_"] button:hover {border-color:#ffad7e!important;filter:brightness(1.12)}\n</style>', unsafe_allow_html=True)
 BASE='https://site.api.espn.com/apis/site/v2/sports/basketball/nba'
 WEB='https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba'
 S=requests.Session()
@@ -168,8 +169,24 @@ for combined, parts in {'PRA':['PTS','REB','AST'], 'PR':['PTS','REB'], 'PA':['PT
 valid=[c for c in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if c in df and df[c].notna().any()]
 if not valid:
     st.warning('ESPN returned game events but no parseable numeric player box-score statistics. Provider format may have changed.');st.dataframe(df.head(5));st.stop()
-tabs=st.tabs(['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report'])
-with tabs[0]:
+# Native Streamlit navigation buttons: no st.tabs CSS or unreadable inactive labels.
+NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report']
+if 'foxk_section' not in st.session_state:
+    st.session_state.foxk_section = NAV_ITEMS[0]
+
+def choose_foxk_section(section):
+    st.session_state.foxk_section = section
+
+for start in (0, 3):
+    nav_cols = st.columns(3, gap='small')
+    for j, section in enumerate(NAV_ITEMS[start:start+3]):
+        with nav_cols[j]:
+            st.button(section, key=f'foxk_nav_{start+j}',
+                      type='primary' if st.session_state.foxk_section == section else 'secondary',
+                      use_container_width=True, on_click=choose_foxk_section, args=(section,))
+st.divider()
+
+if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     st.caption(f'{len(df)} recorded games match your filters. Sample size is shown explicitly; missing values are excluded.')
     cols=st.columns(min(4,len(valid)))
@@ -185,7 +202,7 @@ with tabs[0]:
     st.dataframe(df[show],use_container_width=True,hide_index=True)
     st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
 
-with tabs[1]:
+if st.session_state.foxk_section == NAV_ITEMS[1]:
     st.subheader('Advanced player-prop research')
     st.caption('PRA, PR, PA and RA are also available in the sidebar Prop stat selector above.')
     st.caption('Uses the selected season’s actual ESPN game logs. Filters below apply to this analyzer only, not career head-to-head history.')
@@ -265,7 +282,7 @@ with tabs[1]:
                 st.download_button('Download filtered prop research (CSV)',chart.to_csv(index=False).encode(),file_name='FOXK_prop_research.csv',mime='text/csv',key='foxk_adv_csv')
 
 
-with tabs[2]:
+if st.session_state.foxk_section == NAV_ITEMS[2]:
     st.subheader('Teammate availability comparison')
     st.caption('Compares games where a teammate is recorded playing versus games without a recorded appearance. A missing appearance is NOT proof of an injury or official OUT designation.')
 
@@ -355,7 +372,7 @@ with tabs[2]:
                 with st.expander('Audit games and appearances'):
                     st.dataframe(base[[x for x in ['date','opponent','All selected teammates recorded playing','PTS','REB','AST','MIN'] if x in base]],hide_index=True,use_container_width=True)
 
-with tabs[3]:
+if st.session_state.foxk_section == NAV_ITEMS[3]:
     st.subheader('Career head-to-head vs. an NBA team')
     st.caption('Independent of the season and recent-games filters above. FOXK retrieves each selected season separately and shows the full verified game history available from ESPN.')
     team_codes=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GS','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NOP','NY','NYK','OKC','ORL','PHI','PHX','POR','SAC','SA','SAS','TOR','UTAH','UTA','WAS','WSH']
@@ -427,7 +444,7 @@ with tabs[3]:
                 st.caption('Coverage is limited to seasons selected and successfully returned by ESPN. Includes only game logs ESPN supplies; this is not individual defender tracking.')
 
 
-with tabs[4]:
+if st.session_state.foxk_section == NAV_ITEMS[4]:
 
     st.subheader('Opponent defensive research')
     st.caption('Verified final-score points allowed from ESPN team schedules. This is team-level scoring allowed, NOT player-specific defensive ranking or individual defender tracking.')
@@ -455,7 +472,7 @@ with tabs[4]:
     st.subheader('Individual defender tracking')
     st.info('Individual possession-level player-versus-defender stats are not provided by this free data source. FOXK does not infer defensive assignments from team game logs.')
 
-with tabs[5]:
+if st.session_state.foxk_section == NAV_ITEMS[5]:
     st.subheader('FOXK matchup research assistant')
     st.caption('Free rules-based scouting from actual ESPN game logs. No paid AI model, fabricated defender matchups, or invented predictions.')
     source=player_log(selected['id'],season).copy()
