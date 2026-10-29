@@ -56,27 +56,33 @@ def foxk_login_url(cfg):
     return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
 
 
+ 
 def foxk_token_exchange(cfg, code, verifier):
     response = requests.post(
         FOXK_OAUTH + "/token",
-        data={
+        json={
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": cfg["redirect_uri"],
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
             "code_verifier": verifier,
         },
-        auth=(cfg["client_id"], cfg["client_secret"]),
         headers={"Accept": "application/json"},
         timeout=15,
     )
     if not response.ok:
+        try:
+            error = response.json().get("error", "unknown")
+        except ValueError:
+            error = "non_json_response"
         FOXK_LOG.error(
-            "Whop token exchange failed: HTTP %s",
+            "Whop token exchange: HTTP %s; OAuth error=%s",
             response.status_code,
+            error,
         )
     response.raise_for_status()
     return response.json()
-
 
 def foxk_userinfo(access_token):
     response = requests.get(FOXK_OAUTH + "/userinfo", headers={
