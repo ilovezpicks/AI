@@ -39,9 +39,35 @@ def roster_index():
         except Exception: errors+=1
     return out,errors
 
+def _foxk_three_made(value):
+    """Parse ESPN 3PT field as made-attempted, never attempts as makes."""
+    import re
+    if value is None or pd.isna(value): return float('nan')
+    text=str(value).strip()
+    match=re.fullmatch(r"(\d+)\s*[-/]\s*(\d+)",text)
+    if match: return float(match.group(1))
+    try: return float(text.replace(',',''))
+    except (ValueError,TypeError): return float('nan')
+
+def _foxk_venue(event, entry):
+    """ESPN game-log venue may be represented by atVs rather than homeAway."""
+    for obj in (event,entry):
+        if not isinstance(obj,dict): continue
+        value=str(obj.get('homeAway') or obj.get('home_away') or '').strip().lower()
+        if value in ('home','away'): return value.title()
+        for field in ('atVs','at_vs','gameLocation','location'):
+            val=str(obj.get(field) or '').strip().lower()
+            if val in ('@','at','away','a'): return 'Away'
+            if val in ('vs','vs.','v','home','h'): return 'Home'
+        # Some feeds mark away games with '@' in matchup display.
+        for field in ('shortName','displayName','matchup'):
+            val=str(obj.get(field) or '')
+            if ' @ ' in val: return 'Away'
+            if ' vs ' in val.lower() or ' vs. ' in val.lower(): return 'Home'
+    return None
+
 @st.cache_data(ttl=1800,show_spinner=False)
 def player_log(pid,season):
-    # ESPN's web athlete game-log feed is unofficial and its schema can change.
     payload=fetch(f'{WEB}/athletes/{pid}/gamelog',{'season':season})
     labels=payload.get('labels',[])
     events=payload.get('events',{})
@@ -51,28 +77,47 @@ def player_log(pid,season):
         for cat in season_type.get('categories',[]):
             cat_labels=cat.get('labels') or labels
             for entry in cat.get('events',[]):
-                if not isinstance(entry,dict):continue
+                if not isinstance(entry,dict): continue
                 eid=str(entry.get('eventId') or entry.get('id') or '')
                 event=events.get(eid,{})
                 vals=entry.get('stats',[])
-                if isinstance(vals,dict):vals=list(vals.values())
-                record=dict(zip(cat_labels,vals)) if isinstance(vals,list) else {}
-                record.update({'event_id':eid,'date':event.get('gameDate') or event.get('date'), 'opponent':(event.get('opponent') or {}).get('abbreviation') if isinstance(event.get('opponent'),dict) else event.get('opponent'), 'homeAway':event.get('homeAway'),'result':event.get('gameResult')})
+                record=dict(zip(cat_labels,vals)) if isinstance(vals,list) else (dict(vals) if isinstance(vals,dict) else {})
+                opp=event.get('opponent') or entry.get('opponent') or {}
+                opp=opp.get('abbreviation') if isinstance(opp,dict) else opp
+                record.update({'event_id':eid,
+                               'date':event.get('gameDate') or event.get('date') or entry.get('date'),
+                               'opponent':opp,
+                               'homeAway':_foxk_venue(event,entry),
+                               'result':event.get('gameResult') or entry.get('gameResult')})
                 rows.append(record)
-    # Some seasons expose event lists directly.
     if not rows:
         for entry in payload.get('entries',[]):
-            if isinstance(entry,dict): rows.append(entry)
+            if isinstance(entry,dict):
+                record=dict(entry)
+                record['homeAway']=_foxk_venue(entry,entry)
+                rows.append(record)
     df=pd.DataFrame(rows)
-    if df.empty: return df
-    aliases={'PTS':['PTS','points'],'REB':['REB','rebounds'],'AST':['AST','assists'],'3PM':['3PM','3PT','3PTM','threePointFieldGoalsMade'],'STL':['STL','steals'],'BLK':['BLK','blocks'],'MIN':['MIN','minutes'],'FGA':['FGA','fieldGoalsAttempted'],'FGM':['FGM','fieldGoalsMade'],'FTA':['FTA','freeThrowsAttempted']}
+    if df.empty:return df
+    aliases={'PTS':['PTS','points'],'REB':['REB','rebounds'],'AST':['AST','assists'],
+             'STL':['STL','steals'],'BLK':['BLK','blocks'],'MIN':['MIN','minutes'],
+             'FGA':['FGA','fieldGoalsAttempted'],'FGM':['FGM','fieldGoalsMade'],
+             'FTA':['FTA','freeThrowsAttempted']}
     for key,choices in aliases.items():
         match=next((c for c in choices if c in df.columns),None)
-        if match:df[key]=pd.to_numeric(df[match].astype(str).str.replace(',',''),errors='coerce')
-    for combo, parts in {'PRA':['PTS','REB','AST'],'PR':['PTS','REB'],'PA':['PTS','AST'],'RA':['REB','AST']}.items():
+        if match: df[key]=pd.to_numeric(df[match].astype(str).str.replace(',',''),errors='coerce')
+    # ESPN commonly reports '3PT' as made-attempted (e.g. '4-9').
+    # Direct made-only fields take priority; otherwise parse the left-hand number.
+    made_col=next((c for c in ['3PM','3PTM','threePointFieldGoalsMade'] if c in df.columns),None)
+    if made_col:
+        df['3PM']=df[made_col].apply(_foxk_three_made)
+    else:
+        split_col=next((c for c in ['3PT','3PT FG','3PT-FG','threePointFieldGoalsMade-threePointFieldGoalsAttempted'] if c in df.columns),None)
+        if split_col: df['3PM']=df[split_col].apply(_foxk_three_made)
+    for combo,parts in {'PRA':['PTS','REB','AST'],'PR':['PTS','REB'],'PA':['PTS','AST'],'RA':['REB','AST']}.items():
         if all(k in df for k in parts): df[combo]=df[parts].sum(axis=1,min_count=len(parts))
-    if 'date' in df: df['date']=pd.to_datetime(df['date'],errors='coerce',utc=True)
-    if 'date' in df:df=df.sort_values('date',ascending=False)
+    if 'date' in df:
+        df['date']=pd.to_datetime(df['date'],errors='coerce',utc=True)
+        df=df.sort_values('date',ascending=False)
     return df
 
 
