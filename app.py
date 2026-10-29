@@ -57,16 +57,30 @@ def foxk_login_url(cfg):
 
 def foxk_token_exchange(cfg, code, verifier):
     # Keep all secrets and authorization codes server-side.
-    # Whop's documented token exchange: JSON body, PKCE verifier, no client_secret.
-    response = requests.post(FOXK_OAUTH + "/token", json={
-        "grant_type": "authorization_code", "code": code,
-        "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
-        "code_verifier": verifier,
-    }, headers={"Accept": "application/json"}, timeout=15)
-    if not response.ok:
+    # Whop documents a JSON body with PKCE and no secret, but an app configured as a
+    # confidential client may require its secret. Try the documented form first and
+    # only fall back when Whop answers 401 invalid_client (client auth is checked
+    # before the code is redeemed, so the code is still usable for the next try).
+    import re
+    base = {"grant_type": "authorization_code", "code": code,
+            "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
+            "code_verifier": verifier}
+    attempts = [
+        ("json-pkce", {"json": dict(base)}),
+        ("json-secret", {"json": dict(base, client_secret=cfg["client_secret"])}),
+        ("basic-auth", {"data": {k: v for k, v in base.items() if k != "client_id"},
+                        "auth": (cfg["client_id"], cfg["client_secret"])}),
+    ]
+    response = None
+    error_type = "unavailable"
+    for name, kwargs in attempts:
+        response = requests.post(FOXK_OAUTH + "/token", headers={"Accept": "application/json"},
+                                 timeout=15, **kwargs)
+        if response.ok:
+            FOXK_LOG.info("Whop token exchange succeeded via %s", name)
+            break
         # Whitelist OAuth error identifiers; NEVER print response text,
         # full URLs, tokens, request data, or exception messages.
-        import re
         error_type = "unavailable"
         try:
             payload = response.json()
@@ -76,9 +90,12 @@ def foxk_token_exchange(cfg, code, verifier):
                     error_type = candidate
         except (ValueError, TypeError):
             pass
-        FOXK_LOG.error("Whop token exchange: HTTP %s; OAuth error=%s; response_type=%s",
-                       response.status_code, error_type,
+        FOXK_LOG.error("Whop token exchange (%s): HTTP %s; OAuth error=%s; response_type=%s",
+                       name, response.status_code, error_type,
                        response.headers.get("Content-Type", "unknown").split(";")[0][:40])
+        if not (response.status_code == 401 and error_type == "invalid_client"):
+            break
+    if not response.ok:
         # Raise a generic exception so requests never embeds request URL details.
         raise ValueError("Whop rejected token exchange (HTTP %s, %s)" %
                          (response.status_code, error_type))
