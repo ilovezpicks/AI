@@ -130,15 +130,20 @@ st.title('FOXK  /  NBA STAT LAB')
 st.caption('PLAYER RESEARCH  /  NBA DATA  /  ESPN GAME LOGS')
 with st.expander('Data source & methodology'):
     st.caption('ESPN public basketball endpoints (unofficial). Statistics appear only when the provider returns usable game logs. No fabricated data or guessed matchups.')
-with st.sidebar:
-    st.header('FILTERS')
-    season=st.selectbox('Season',[2027,2026,2025,2024,2023,2022],index=0,format_func=lambda x:f'{x-1}–{str(x)[-2:]}')
-    search=st.text_input('Find player',placeholder='Type a player name, e.g. Stephen Curry',key='foxk_player_query')
-    window=st.selectbox('Recent games',[5,10,15,20,40,82],index=1)
-    opponent=st.text_input('Opponent abbreviation (optional)',placeholder='ATL')
-    location=st.selectbox('Location',['All','Home','Away'])
-    stat=st.selectbox('Prop stat',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'])
-    line=st.number_input('Prop line',min_value=0.0,value=24.5,step=0.5)
+# Global player and season selection; research filters belong to their own sections.
+st.markdown('**PLAYER SEARCH**')
+top_left,top_right=st.columns([3,1])
+with top_left:
+    search=st.text_input('Find player',placeholder='Search NBA players',key='foxk_player_query')
+with top_right:
+    season=st.selectbox('Season',[2027,2026,2025,2024,2023,2022],
+        index=0,format_func=lambda x:f'{x-1}–{str(x)[-2:]}')
+# Safe defaults for independent sections; each section can override them locally.
+window=10
+opponent=''
+location='All'
+stat='PTS'
+line=24.5
 
 try:
     with st.spinner('Finding NBA players from current team rosters…'):
@@ -164,7 +169,7 @@ if not matches:
 selected=st.selectbox('Select player',matches,
     format_func=lambda p:f"{p['name']} · {p['team']}",
     key='player_select_'+query)
-st.caption(f'{len(matches)} matching player(s). Type a new name in the sidebar to search again.')
+st.caption(f'{len(matches)} matching player(s). Search above to find a different player.')
 if roster_errors:st.caption(f'{roster_errors} team roster feeds were unavailable; search may be incomplete.')
 try:
     with st.spinner('Retrieving verified game logs…'):
@@ -174,13 +179,8 @@ except Exception as e:
 if df.empty:
     st.warning('ESPN returned no game-log rows for this player and season. Try another season. No numbers will be invented.')
     st.stop()
-if opponent.strip() and 'opponent' in df.columns:
-    df=df[df['opponent'].astype(str).str.upper()==opponent.strip().upper()]
-if location!='All' and 'homeAway' in df.columns:
-    df=df[df['homeAway'].astype(str).str.lower()==location.lower()]
-if df.empty:
-    st.warning('No recorded games match these filters.');st.stop()
-df=df.head(window).copy()
+# Do not globally filter game logs: every research section manages its own sample.
+df=df.copy()
 # Combined props require all contributing box-score stats to be present.
 for combined, parts in {'PRA':['PTS','REB','AST'], 'PR':['PTS','REB'], 'PA':['PTS','AST'], 'RA':['REB','AST']}.items():
     if all(part in df.columns for part in parts):
@@ -207,6 +207,19 @@ st.divider()
 
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
+    with st.expander('Overview filters',expanded=False):
+        ov1,ov2,ov3=st.columns(3)
+        with ov1: window=st.selectbox('Recent games',[5,10,15,20,40,82],index=1,key='foxk_overview_window')
+        with ov2: opponent=st.selectbox('Opponent',['All']+sorted(df['opponent'].dropna().astype(str).unique().tolist()) if 'opponent' in df else ['All'],key='foxk_overview_opp')
+        with ov3: location=st.selectbox('Location',['All','Home','Away'],key='foxk_overview_location')
+    if opponent!='All' and 'opponent' in df: df=df[df['opponent'].astype(str)==opponent]
+    if location!='All' and 'homeAway' in df: df=df[df['homeAway'].astype(str).str.lower()==location.lower()]
+    df=df.head(window).copy()
+    if df.empty:
+        st.info('No games match these overview filters.')
+        st.stop()
+    stat=st.selectbox('Overview metric',valid,key='foxk_overview_stat')
+    line=st.number_input('Overview comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_overview_line')
     st.caption(f'{len(df)} recorded games match your filters. Sample size is shown explicitly; missing values are excluded.')
     cols=st.columns(min(4,len(valid)))
     for i,key in enumerate(valid[:4]):cols[i].metric(key,f'{df[key].mean():.1f}')
@@ -377,12 +390,7 @@ if st.session_state.foxk_section == NAV_ITEMS[2]:
                         minute_events=set(mate_log.loc[valid_minutes & (mate_log['MIN']>0),'event_id'].astype(str))
                         unknown_events=set(mate_log.loc[~valid_minutes,'event_id'].astype(str))
                         comparison['Teammate recorded']=comparison['event_id'].astype(str).isin(minute_events | unknown_events)
-                if opponent.strip() and 'opponent' in comparison.columns:
-                    comparison=comparison[comparison['opponent'].astype(str).str.upper()==opponent.strip().upper()]
-                if location!='All' and 'homeAway' in comparison.columns:
-                    comparison=comparison[comparison['homeAway'].astype(str).str.lower()==location.lower()]
-                # Explicitly include all games matching season/opponent/location; not just recent window.
-                st.caption('Comparison uses all available season games matching opponent/location filters, independent of the recent-games slider.')
+                st.caption('Comparison uses all available recorded season games, independent of Overview filters.')
                 metrics=[c for c in ['PTS','REB','AST','3PM','STL','BLK','MIN'] if c in comparison.columns and comparison[c].notna().any()]
                 if comparison.empty or not metrics:
                     st.warning('No comparable games or numeric stats available.')
@@ -449,8 +457,11 @@ default_idx=canonical.index(initial) if initial in canonical else 0
 
 if st.session_state.foxk_section == NAV_ITEMS[3]:
     st.subheader('Career head-to-head vs. an NBA team')
-    st.caption('Independent of the season and recent-games filters above. FOXK retrieves each selected season separately and shows the full verified game history available from ESPN.')
+    st.caption('Independent of the selected season and Overview filters. FOXK retrieves each selected season separately and shows the full verified game history available from ESPN.')
     h2h_team=st.selectbox('Head-to-head opponent',canonical,index=default_idx,key='foxk_h2h_opponent')
+    h2h_cols=st.columns(2)
+    with h2h_cols[0]: stat=st.selectbox('H2H metric',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'],key='foxk_h2h_stat')
+    with h2h_cols[1]: line=st.number_input('H2H comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_h2h_line')
     # End-year values, e.g. 2027 means the 2026-27 season.
     h2h_years=st.multiselect('Historical seasons to include (NBA season ending year)',list(range(2027,2010,-1)),default=list(range(2027,2016,-1)),key='foxk_h2h_years',help='Default: 2016–17 through 2026–27. Select older seasons to extend history. Seasons before the player entered the NBA will have no games.')
     h2h_run=st.button('Load full head-to-head history',type='primary',key='foxk_h2h_load')
@@ -500,7 +511,7 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
                         vals=history[stat].dropna()
                         hits=int((vals>line).sum())
                         st.metric(f'Career H2H {stat} over {line:g}',f'{hits}/{len(vals)} ({hits/len(vals):.1%})')
-                        st.caption('Historical frequency only, not a future-game probability. The prop line comes from the sidebar.')
+                        st.caption('Historical frequency only, not a future-game probability. The comparison line is selected above.')
                 st.markdown('**Every retrieved head-to-head game**')
                 display=[c for c in ['Season','date','opponent','homeAway','result','MIN','PTS','REB','AST','3PM','STL','BLK'] if c in history]
                 st.dataframe(history[display],use_container_width=True,hide_index=True)
@@ -564,6 +575,11 @@ if st.session_state.foxk_section == NAV_ITEMS[4]:
 if st.session_state.foxk_section == NAV_ITEMS[5]:
     st.subheader('FOXK matchup research assistant')
     st.caption('Free rules-based scouting from actual ESPN game logs. No paid AI model, fabricated defender matchups, or invented predictions.')
+    scout_a,scout_b,scout_c=st.columns(3)
+    with scout_a: stat=st.selectbox('Scouting metric',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'],key='foxk_scout_stat')
+    with scout_b: line=st.number_input('Scouting comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_scout_line')
+    with scout_c: opponent=st.selectbox('Scouting opponent',['All']+canonical,key='foxk_scout_opponent')
+    if opponent=='All': opponent=''
     source=player_log(selected['id'],season).copy()
     if source.empty:
         st.warning('No game logs available for this report.')
@@ -613,7 +629,7 @@ if st.session_state.foxk_section == NAV_ITEMS[5]:
             else:
                 st.info('Opponent codes are unavailable in these game logs.')
         else:
-            st.caption('Enter an opponent abbreviation in the sidebar to add a same-season matchup comparison.')
+            st.caption('Select an opponent above to add a same-season matchup comparison.')
         if 'homeAway' in source and stat in source:
             loc_rows=[]
             for loc in ['home','away']:
