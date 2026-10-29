@@ -49,7 +49,7 @@ def foxk_login_url(cfg):
     state = foxk_state_create(cfg, verifier)
     params = {
         "response_type": "code", "client_id": cfg["client_id"],
-        "redirect_uri": cfg["redirect_uri"], "scope": "read_user",,
+        "redirect_uri": cfg["redirect_uri"], "scope": "read_user",
         "state": state, "nonce": foxk_b64(secrets.token_bytes(24)),
         "code_challenge": challenge, "code_challenge_method": "S256",
     }
