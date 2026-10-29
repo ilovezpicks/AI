@@ -287,6 +287,9 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.dataframe(df[show],use_container_width=True,hide_index=True)
     st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
 
+# All 30 NBA franchises are selectable, including teams not yet faced this season.
+FOXK_ALL_NBA_TEAMS=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NOP','NYK','OKC','ORL','PHI','PHX','POR','SAC','SAS','TOR','UTA','WAS']
+
 if st.session_state.foxk_section == NAV_ITEMS[1]:
     st.subheader('Prop research 2.0')
     st.caption('Historical game-log research. All rates use recorded games with numeric stats; pushes are excluded from decisions.')
@@ -311,7 +314,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
             with c: prop_side=st.selectbox('Direction',['Over','Under'],key='foxk_prop20_side')
             f1,f2,f3=st.columns(3)
             with f1:
-                opponents=sorted(prop_source['opponent'].dropna().astype(str).str.upper().unique()) if 'opponent' in prop_source else []
+                opponents=FOXK_ALL_NBA_TEAMS
                 prop_opp=st.selectbox('Opponent',['All']+opponents,key='foxk_prop20_opp')
             with f2: prop_venue=st.selectbox('Location',['All','Home','Away'],key='foxk_prop20_venue')
             with f3: prop_sample=st.selectbox('Game window',['All games',5,10,15,20,40,82],key='foxk_prop20_sample')
@@ -325,7 +328,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                 prop_source=prop_source.sort_values('date',ascending=False)
             filtered=prop_source.copy()
             if prop_opp!='All' and 'opponent' in filtered:
-                filtered=filtered[filtered['opponent'].astype(str).str.upper()==prop_opp]
+                filtered=filtered[filtered['opponent'].astype(str).map(lambda x: {'GS':'GSW','NO':'NOP','NY':'NYK','SA':'SAS','UTAH':'UTA','WSH':'WAS'}.get(x.strip().upper(),x.strip().upper()))==prop_opp]
             if prop_venue!='All':
                 filtered=filtered[filtered['homeAway'].astype(str).str.lower()==prop_venue.lower()] if 'homeAway' in filtered else filtered.iloc[0:0]
             if prop_day!='All':
@@ -338,7 +341,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
             if prop_sample!='All games': filtered=filtered.head(int(prop_sample))
             filtered=filtered[filtered[prop_metric].notna()].copy()
             if filtered.empty:
-                st.warning('No games match these filters. Broaden your selection to see results.')
+                st.warning('No recorded games against this opponent in the selected season.' if prop_opp!='All' and not prop_source['opponent'].astype(str).map(lambda x: {'GS':'GSW','NO':'NOP','NY':'NYK','SA':'SAS','UTAH':'UTA','WSH':'WAS'}.get(x.strip().upper(),x.strip().upper())).eq(prop_opp).any() else 'No games match these filters. Broaden your selection to see results.')
             else:
                 vals=filtered[prop_metric]
                 hit=(vals>prop_line) if prop_side=='Over' else (vals<prop_line)
