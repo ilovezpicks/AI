@@ -222,83 +222,126 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
 
 if st.session_state.foxk_section == NAV_ITEMS[1]:
-    st.subheader('Advanced player-prop research')
-    st.caption('PRA, PR, PA and RA are also available in the sidebar Prop stat selector above.')
-    st.caption('Uses the selected season’s actual ESPN game logs. Filters below apply to this analyzer only, not career head-to-head history.')
+    st.subheader('Prop research 2.0')
+    st.caption('Historical game-log research. All rates use recorded games with numeric stats; pushes are excluded from decisions.')
     prop_source=player_log(selected['id'],season).copy()
     if prop_source.empty:
-        st.info('No verified season game logs available for advanced prop research.')
+        st.info('No game logs were returned for this season.')
     else:
-        if 'event_id' in prop_source.columns:
+        if 'event_id' in prop_source:
             prop_source=prop_source.drop_duplicates(subset=['event_id'])
-        prop_source['PRA']=prop_source[['PTS','REB','AST']].sum(axis=1,min_count=3) if all(k in prop_source for k in ['PTS','REB','AST']) else float('nan')
-        prop_source['PR']=prop_source[['PTS','REB']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['PTS','REB']) else float('nan')
-        prop_source['PA']=prop_source[['PTS','AST']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['PTS','AST']) else float('nan')
-        prop_source['RA']=prop_source[['REB','AST']].sum(axis=1,min_count=2) if all(k in prop_source for k in ['REB','AST']) else float('nan')
-        available=[k for k in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if k in prop_source and prop_source[k].notna().any()]
+        if 'date' in prop_source:
+            prop_source=prop_source.sort_values('date',ascending=False)
+        for combo,parts in {'PRA':['PTS','REB','AST'],'PR':['PTS','REB'],'PA':['PTS','AST'],'RA':['REB','AST']}.items():
+            if all(c in prop_source for c in parts):
+                prop_source[combo]=prop_source[parts].sum(axis=1,min_count=len(parts))
+        available=[c for c in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'] if c in prop_source and prop_source[c].notna().any()]
         if not available:
-            st.warning('ESPN returned no numeric statistics for advanced prop calculations.')
+            st.warning('ESPN did not return numeric game-log statistics for this player.')
         else:
             a,b,c=st.columns(3)
-            with a: prop_metric=st.selectbox('Stat to research',available,key='foxk_adv_metric')
-            with b: prop_line=st.number_input('Research line',min_value=0.0,value=24.5,step=0.5,key='foxk_adv_line')
-            with c: prop_side=st.selectbox('Result', ['Over','Under'],key='foxk_adv_side')
+            with a: prop_metric=st.selectbox('Statistic',available,key='foxk_prop20_metric')
+            with b: prop_line=st.number_input('Research threshold',min_value=0.0,value=24.5,step=0.5,key='foxk_prop20_line')
+            with c: prop_side=st.selectbox('Direction',['Over','Under'],key='foxk_prop20_side')
             f1,f2,f3=st.columns(3)
             with f1:
-                opps=sorted(set(prop_source['opponent'].dropna().astype(str).str.upper())) if 'opponent' in prop_source else []
-                prop_opponent=st.selectbox('Opponent',['All']+opps,key='foxk_adv_opponent')
-            with f2: prop_location=st.selectbox('Home / away',['All','Home','Away'],key='foxk_adv_location')
-            with f3: prop_window=st.selectbox('Sample window',['Full season',5,10,15,20,40,82],key='foxk_adv_window')
+                opponents=sorted(prop_source['opponent'].dropna().astype(str).str.upper().unique()) if 'opponent' in prop_source else []
+                prop_opp=st.selectbox('Opponent',['All']+opponents,key='foxk_prop20_opp')
+            with f2: prop_venue=st.selectbox('Location',['All','Home','Away'],key='foxk_prop20_venue')
+            with f3: prop_sample=st.selectbox('Game window',['All games',5,10,15,20,40,82],key='foxk_prop20_sample')
             f4,f5=st.columns(2)
-            with f4:
-                weekdays=['All','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-                prop_weekday=st.selectbox('Day of week',weekdays,key='foxk_adv_weekday')
-            with f5:
-                rest_choice=st.selectbox('Rest between recorded appearances',['All','0 days (back-to-back)','1 day','2+ days'],key='foxk_adv_rest')
-            # Derive rest from dated recorded appearances, before narrowing to opponent or venue.
+            with f4: prop_day=st.selectbox('Day of week',['All','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],key='foxk_prop20_day')
+            with f5: prop_rest=st.selectbox('Days off between recorded appearances',['All','0 days','1 day','2+ days'],key='foxk_prop20_rest')
             if 'date' in prop_source and prop_source['date'].notna().any():
                 prop_source=prop_source.sort_values('date')
-                prop_source['rest_days']=(prop_source['date'].dt.normalize()-prop_source['date'].shift(1).dt.normalize()).dt.days-1
+                prop_source['rest_days']=(prop_source['date'].dt.normalize()-prop_source['date'].shift().dt.normalize()).dt.days-1
                 prop_source['weekday']=prop_source['date'].dt.day_name()
                 prop_source=prop_source.sort_values('date',ascending=False)
             filtered=prop_source.copy()
-            if prop_opponent!='All' and 'opponent' in filtered:
-                filtered=filtered[filtered['opponent'].astype(str).str.upper()==prop_opponent]
-            if prop_location!='All' and 'homeAway' in filtered:
-                filtered=filtered[filtered['homeAway'].astype(str).str.lower()==prop_location.lower()]
-            if prop_weekday!='All':
-                if 'weekday' in filtered: filtered=filtered[filtered['weekday']==prop_weekday]
-                else: filtered=filtered.iloc[0:0]
-            if rest_choice!='All':
+            if prop_opp!='All' and 'opponent' in filtered:
+                filtered=filtered[filtered['opponent'].astype(str).str.upper()==prop_opp]
+            if prop_venue!='All':
+                filtered=filtered[filtered['homeAway'].astype(str).str.lower()==prop_venue.lower()] if 'homeAway' in filtered else filtered.iloc[0:0]
+            if prop_day!='All':
+                filtered=filtered[filtered['weekday']==prop_day] if 'weekday' in filtered else filtered.iloc[0:0]
+            if prop_rest!='All':
                 if 'rest_days' not in filtered: filtered=filtered.iloc[0:0]
-                elif rest_choice.startswith('0'): filtered=filtered[filtered['rest_days']==0]
-                elif rest_choice.startswith('1'): filtered=filtered[filtered['rest_days']==1]
+                elif prop_rest=='0 days': filtered=filtered[filtered['rest_days']==0]
+                elif prop_rest=='1 day': filtered=filtered[filtered['rest_days']==1]
                 else: filtered=filtered[filtered['rest_days']>=2]
-            if prop_window!='Full season': filtered=filtered.head(int(prop_window))
+            if prop_sample!='All games': filtered=filtered.head(int(prop_sample))
             filtered=filtered[filtered[prop_metric].notna()].copy()
             if filtered.empty:
-                st.warning('No verified games match this combination of filters. Try broadening the selection.')
+                st.warning('No games match these filters. Broaden your selection to see results.')
             else:
                 vals=filtered[prop_metric]
-                hits=vals>prop_line if prop_side=='Over' else vals<prop_line
-                pushes=vals==prop_line
-                decisions=int((~pushes).sum())
-                successes=int(hits.sum())
-                x,y,z=st.columns(3)
-                x.metric('Games with stats',len(filtered))
-                y.metric(f'{prop_metric} average',f'{vals.mean():.1f}')
-                z.metric(f'{prop_side} {prop_line:g} hit rate',f'{successes}/{decisions} ({successes/decisions:.1%})' if decisions else 'No decisions')
-                st.caption(f'{int(pushes.sum())} push(es) excluded from hit-rate denominator. Historical frequency only, not a forecast. Rest is estimated from consecutive recorded appearances, NOT confirmed team rest or travel schedule.')
-                chart=filtered.sort_values('date').copy() if 'date' in filtered else filtered.copy()
-                chart['Line']=prop_line
-                chart['Actual']=chart[prop_metric]
-                chart['Hit']=hits.reindex(chart.index).map({True:'Hit',False:'Miss'})
-                st.markdown('**Actual game results vs. research line**')
-                st.bar_chart(chart.assign(**{'Hit game':chart['Actual'].where(chart['Hit']=='Hit'),'Miss game':chart['Actual'].where(chart['Hit']=='Miss')}).set_index('date')[['Hit game','Miss game','Line']] if 'date' in chart and chart['date'].notna().all() else chart[['Actual','Line']])
-                cols=[k for k in ['date','opponent','homeAway','weekday','rest_days','MIN','PTS','REB','AST','3PM','STL','BLK',prop_metric,'Hit'] if k in chart]
+                hit=(vals>prop_line) if prop_side=='Over' else (vals<prop_line)
+                push=vals==prop_line
+                decisions=int((~push).sum())
+                n_hits=int(hit.sum())
+                m1,m2,m3,m4=st.columns(4)
+                m1.metric('Recorded games',len(vals))
+                m2.metric('Average',f'{vals.mean():.1f}')
+                m3.metric('Median',f'{vals.median():.1f}')
+                m4.metric(f'{prop_side} hit rate',f'{n_hits}/{decisions} ({n_hits/decisions:.0%})' if decisions else 'No decisions')
+                st.caption(f'{int(push.sum())} pushes excluded from the hit-rate denominator. The selected sample is descriptive, not predictive.')
+                st.markdown('#### Recent trend by sample size')
+                trends=[]
+                for label,n in [('Last 5',5),('Last 10',10),('Last 20',20),('All filtered',len(filtered))]:
+                    part=filtered.head(n)[prop_metric]
+                    wins=(part>prop_line) if prop_side=='Over' else (part<prop_line)
+                    valid=part!=prop_line
+                    count=int(valid.sum())
+                    trends.append({'Window':label,'Games':len(part),'Average':round(float(part.mean()),1),
+                                   'Hits':int(wins.sum()),'Decisions':count,
+                                   'Hit rate':f'{int(wins.sum())/count:.0%}' if count else 'N/A'})
+                st.dataframe(pd.DataFrame(trends),hide_index=True,use_container_width=True)
+                st.markdown('#### Game-by-game results vs. threshold')
+                graph=filtered.copy()
+                graph['Threshold']=prop_line
+                graph['Actual']=graph[prop_metric]
+                if 'date' in graph and graph['date'].notna().all():
+                    graph=graph.sort_values('date')
+                    graph['Game']=graph['date'].dt.strftime('%b %d')
+                else:
+                    graph=graph.iloc[::-1].copy()
+                    graph['Game']=[f'Game {i+1}' for i in range(len(graph))]
+                graph['Outcome']=graph['Actual'].apply(lambda v:'Push' if v==prop_line else ('Hit' if (v>prop_line if prop_side=='Over' else v<prop_line) else 'Miss'))
+                st.line_chart(graph.set_index('Game')[['Actual','Threshold']],use_container_width=True)
+                st.caption('The line chart plots observed game totals and your research threshold; it does not project future results.')
+                st.markdown('#### Opponent comparison')
+                if 'opponent' in filtered and filtered['opponent'].notna().any():
+                    opponent_rows=[]
+                    for code,group in filtered.groupby('opponent',dropna=True):
+                        x=group[prop_metric]
+                        wins=(x>prop_line) if prop_side=='Over' else (x<prop_line)
+                        decision=int((x!=prop_line).sum())
+                        opponent_rows.append({'Opponent':str(code),'Games':len(x),'Average':round(float(x.mean()),1),
+                                              'Hits':int(wins.sum()),'Decisions':decision,
+                                              'Hit rate':f'{int(wins.sum())/decision:.0%}' if decision else 'N/A'})
+                    st.dataframe(pd.DataFrame(opponent_rows).sort_values(['Games','Opponent'],ascending=[False,True]),hide_index=True,use_container_width=True)
+                else: st.caption('Opponent labels are not available for these game logs.')
+                st.markdown('#### Home / away comparison')
+                if 'homeAway' in filtered and filtered['homeAway'].notna().any():
+                    venue_rows=[]
+                    for venue,group in filtered.groupby(filtered['homeAway'].astype(str).str.title()):
+                        x=group[prop_metric]
+                        wins=(x>prop_line) if prop_side=='Over' else (x<prop_line)
+                        decision=int((x!=prop_line).sum())
+                        venue_rows.append({'Location':venue,'Games':len(x),'Average':round(float(x.mean()),1),
+                                           'Hits':int(wins.sum()),'Decisions':decision,
+                                           'Hit rate':f'{int(wins.sum())/decision:.0%}' if decision else 'N/A'})
+                    st.dataframe(pd.DataFrame(venue_rows),hide_index=True,use_container_width=True)
+                else: st.caption('Home/away labels are not available for these game logs.')
+                st.markdown('#### Auditable game log')
+                cols=[k for k in ['date','opponent','homeAway','weekday','rest_days','MIN','PTS','REB','AST','3PM','STL','BLK',prop_metric] if k in filtered]
                 cols=list(dict.fromkeys(cols))
-                st.dataframe(chart[cols].sort_values('date',ascending=False) if 'date' in cols else chart[cols],use_container_width=True,hide_index=True)
-                st.download_button('Download filtered prop research (CSV)',chart.to_csv(index=False).encode(),file_name='FOXK_prop_research.csv',mime='text/csv',key='foxk_adv_csv')
+                audit=filtered[cols].copy()
+                audit['Outcome']=graph['Outcome'].reindex(audit.index)
+                st.dataframe(audit,use_container_width=True,hide_index=True)
+                st.download_button('Download research (CSV)',audit.to_csv(index=False).encode('utf-8'),
+                                   file_name=f'FOXK_{selected["id"]}_{prop_metric}_{season}_prop.csv',mime='text/csv',key='foxk_prop20_csv')
+                st.caption('Small matchup samples can be misleading. Days off are inferred from player appearances, not official team schedules. ESPN endpoints are unofficial.')
 
 
 if st.session_state.foxk_section == NAV_ITEMS[2]:
