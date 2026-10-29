@@ -2,6 +2,169 @@ import streamlit as st
 import requests, pandas as pd, datetime as dt, time
 
 st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
+# FOXK Whop VIP gate — runs before any research data is fetched.
+import base64, hashlib, secrets, threading, urllib.parse
+
+FOXK_JOIN = "https://whop.com/discord-gg-50b0/foxk-vip-picks/"
+FOXK_DISCORD = "https://discord.gg/fX3BpQ5T6"
+FOXK_OAUTH = "https://api.whop.com/oauth"
+
+@st.cache_resource
+def foxk_oauth_pending():
+    # Shared within this Streamlit server process. A restart during login
+    # invalidates the attempt safely; no credentials are sent in the URL.
+    return {"lock": threading.Lock(), "requests": {}}
+
+def foxk_b64(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+def foxk_config():
+    try:
+        cfg = st.secrets["whop"]
+        return {k: str(cfg[k]).strip() for k in ("client_id", "client_secret", "product_id", "redirect_uri")}, str(cfg.get("api_key", "")).strip(), str(cfg.get("company_id", "biz_jiBiHn3QVytpcB")).strip()
+    except (KeyError, FileNotFoundError):
+        return None, "", ""
+
+def foxk_login_url(cfg):
+    verifier = foxk_b64(secrets.token_bytes(48))
+    challenge = foxk_b64(hashlib.sha256(verifier.encode()).digest())
+    state = foxk_b64(secrets.token_bytes(24))
+    pending = foxk_oauth_pending()
+    with pending["lock"]:
+        now = time.time()
+        for key, val in list(pending["requests"].items()):
+            if now - val["created"] > 600:
+                del pending["requests"][key]
+        pending["requests"][state] = {"verifier": verifier, "created": now}
+    params = {
+        "response_type": "code", "client_id": cfg["client_id"],
+        "redirect_uri": cfg["redirect_uri"], "scope": "openid profile email",
+        "state": state, "nonce": foxk_b64(secrets.token_bytes(24)),
+        "code_challenge": challenge, "code_challenge_method": "S256",
+    }
+    return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
+
+def foxk_token_exchange(cfg, code, verifier):
+    response = requests.post(FOXK_OAUTH + "/token", json={
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
+        "client_secret": cfg["client_secret"], "code_verifier": verifier,
+    }, timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+def foxk_userinfo(access_token):
+    response = requests.get(FOXK_OAUTH + "/userinfo", headers={
+        "Authorization": "Bearer " + access_token,
+    }, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    if not str(data.get("sub", "")).startswith("user_"):
+        raise ValueError("Whop did not return a valid user identity")
+    return data
+
+def foxk_active_member(api_key, company_id, user_id, product_id):
+    # API key is server-side and must have member:basic:read and member:email:read.
+    # Explicitly recheck the returned user, product and status, regardless of filters.
+    cursor = None
+    for _ in range(15):
+        params = {"account_id": company_id, "user_ids[]": user_id,
+                  "product_ids[]": product_id, "first": 50}
+        if cursor:
+            params["after"] = cursor
+        response = requests.get("https://api.whop.com/api/v1/memberships",
+            params=params, headers={"Authorization": "Bearer " + api_key}, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        for membership in payload.get("data", []):
+            if (membership.get("user") or {}).get("id") != user_id:
+                continue
+            if (membership.get("product") or {}).get("id") != product_id:
+                continue
+            if membership.get("status") != "active":
+                continue
+            return True
+        page = payload.get("page_info") or {}
+        if not page.get("has_next_page"):
+            return False
+        cursor = page.get("end_cursor")
+        if not cursor:
+            raise ValueError("Membership results were incomplete")
+    raise ValueError("Membership results exceeded the pagination safety limit")
+
+def foxk_gate():
+    cfg, api_key, company_id = foxk_config()
+    st.markdown("""<style>
+    .foxk-login{background:#191e23;border:1px solid #353b43;border-radius:14px;padding:30px;margin:30px auto;max-width:680px}
+    .foxk-login h2{color:#fff!important}.foxk-login p{color:#bac2ca!important}
+    .foxk-login a{color:#f39a62!important}
+    </style>""", unsafe_allow_html=True)
+    if not cfg or not api_key:
+        st.title("FOXK / VIP ACCESS")
+        st.error("VIP verification is not fully configured yet. The research dashboard is locked until the Whop membership API key is added in Streamlit Secrets.")
+        st.markdown(f"[Join the free Discord]({FOXK_DISCORD})")
+        st.stop()
+    if st.query_params.get("error"):
+        st.query_params.clear()
+        st.warning("Whop sign-in was canceled or could not be completed. Please try again.")
+    code = st.query_params.get("code")
+    state = st.query_params.get("state")
+    if code or state:
+        pending = foxk_oauth_pending()
+        with pending["lock"]:
+            attempt = pending["requests"].pop(state, None) if isinstance(state, str) else None
+        st.query_params.clear()
+        if not (isinstance(code, str) and attempt and time.time() - attempt["created"] < 600):
+            st.error("Sign-in expired or failed security validation. Please try again.")
+            st.stop()
+        try:
+            tokens = foxk_token_exchange(cfg, code, attempt["verifier"])
+            access = tokens["access_token"]
+            identity = foxk_userinfo(access)
+            st.session_state["foxk_whop_user"] = identity["sub"]
+            st.session_state["foxk_whop_access"] = access
+            st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
+        except (requests.RequestException, KeyError, ValueError):
+            st.error("Whop sign-in could not be verified. Please try again.")
+            st.stop()
+    user = st.session_state.get("foxk_whop_user")
+    access = st.session_state.get("foxk_whop_access")
+    if user and access and time.time() < st.session_state.get("foxk_whop_expires", 0) - 30:
+        try:
+            # Never trust the stored user ID without validating the OAuth token.
+            identity = foxk_userinfo(access)
+            if identity["sub"] != user:
+                raise ValueError("Whop identity changed")
+            allowed = foxk_active_member(api_key, company_id, user, cfg["product_id"])
+        except (requests.RequestException, ValueError, KeyError):
+            st.error("We could not verify your VIP membership right now. Access is temporarily locked. Please retry shortly.")
+            st.stop()
+        if allowed:
+            with st.sidebar:
+                st.caption("FOXK VIP · Verified with Whop")
+                if st.button("Sign out", key="foxk_whop_signout"):
+                    for key in ("foxk_whop_user", "foxk_whop_access", "foxk_whop_expires"):
+                        st.session_state.pop(key, None)
+                    st.rerun()
+            return
+        st.markdown("<div class='foxk-login'><h2>FOXK VIP membership required</h2><p>Your Whop account does not currently have an active FOXK VIP PICKS membership. The Stat Lab remains locked.</p></div>", unsafe_allow_html=True)
+        st.link_button("Get FOXK VIP", FOXK_JOIN, type="primary")
+        st.link_button("Join free Discord", FOXK_DISCORD)
+        if st.button("Sign in with a different Whop account"):
+            for key in ("foxk_whop_user", "foxk_whop_access", "foxk_whop_expires"):
+                st.session_state.pop(key, None)
+            st.rerun()
+        st.stop()
+    for key in ("foxk_whop_user", "foxk_whop_access", "foxk_whop_expires"):
+        st.session_state.pop(key, None)
+    st.markdown("<div class='foxk-login'><h2>FOXK / NBA STAT LAB</h2><p>Premium NBA research, exclusively for active FOXK VIP PICKS subscribers.</p><p>Sign in with Whop to verify your membership. Free Discord members can still join the community.</p></div>", unsafe_allow_html=True)
+    st.link_button("Sign in with Whop", foxk_login_url(cfg), type="primary")
+    st.link_button("Get FOXK VIP", FOXK_JOIN)
+    st.link_button("Join free Discord", FOXK_DISCORD)
+    st.stop()
+
+foxk_gate()
+
 st.markdown('\n<style>\n#MainMenu,footer{visibility:hidden}\n[data-testid="stHeader"]{background:#101316!important;height:3rem}\n.stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#101316!important;color:#f0f1f2!important}\n.block-container{max-width:1320px!important;padding-top:1.6rem!important;padding-bottom:4rem!important}\nh1,h2,h3{font-family:Arial,Helvetica,sans-serif!important;letter-spacing:-.035em!important;color:#f4f5f6!important}\nh1{font-size:2.2rem!important;font-weight:800!important;margin-bottom:.1rem!important}\nh2{font-size:1.6rem!important}\np,li,label,span{line-height:1.5}\n[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{color:#aab2bb!important;opacity:1!important}\n[data-testid="stSidebar"]{background:#191d21!important;border-right:1px solid #343a40!important}\n[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,[data-testid="stSidebar"] p,[data-testid="stSidebar"] label{color:#f0f1f2!important}\n[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{color:#d5d9dd!important;font-weight:600!important}\n[data-testid="stSidebar"] input{color:#f0f1f2!important;background:#262b30!important}\n[data-testid="stSidebar"] input::placeholder{color:#a6b0ba!important;opacity:1!important}\n[data-baseweb="select"]>div,[data-baseweb="input"]>div{background:#262b30!important;border:1px solid #454c54!important;border-radius:7px!important}\n[data-baseweb="select"] *,[data-baseweb="input"] input{color:#f0f1f2!important}\n[data-baseweb="select"] svg{fill:#d5d9dd!important}\n[data-baseweb="tab-list"]{gap:0!important;border-bottom:1px solid #343a40!important;flex-wrap:wrap!important}\nbutton[data-baseweb="tab"]{background:transparent!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;padding:13px 16px!important}\nbutton[data-baseweb="tab"] *,button[data-baseweb="tab"]{color:#b5bdc5!important;opacity:1!important;font-weight:650!important}\nbutton[data-baseweb="tab"][aria-selected="true"]{border-bottom:2px solid #ed854d!important}\nbutton[data-baseweb="tab"][aria-selected="true"] *{color:#fff!important}\nbutton[data-baseweb="tab"]:hover *{color:#fff!important}\n[data-testid="stMetric"]{background:#1c2126!important;border:1px solid #363d44!important;border-radius:9px!important;padding:18px 20px!important}\n[data-testid="stMetricLabel"] *,[data-testid="stMetricLabel"]{color:#b8c2cb!important;font-weight:650!important;font-size:.82rem!important}\n[data-testid="stMetricValue"] *,[data-testid="stMetricValue"]{color:#f6f7f8!important;font-weight:750!important}\n[data-testid="stDataFrame"]{border:1px solid #363d44!important;border-radius:8px!important}\n[data-testid="stAlert"]{border:1px solid #38414a!important;border-radius:8px!important}\n.stButton button,[data-testid="stDownloadButton"] button{border-radius:7px!important}\nhr{border-color:#343a40!important}\n@media(max-width:768px){.block-container{padding:1rem!important}h1{font-size:1.65rem!important}button[data-baseweb="tab"]{padding:9px!important}}\n</style>\n',unsafe_allow_html=True)
 st.markdown('<style>\n[data-testid="stTabs"] [role="tablist"]{display:flex!important;flex-wrap:wrap!important;gap:4px!important;border-bottom:1px solid #363c42!important}\n[data-testid="stTabs"] button[role="tab"]{color:#d1d6dd!important;opacity:1!important;background:transparent!important;border:0!important;border-bottom:3px solid transparent!important;padding:12px 15px!important;min-height:46px!important;white-space:nowrap!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] [role="tab"] p,[data-testid="stTabs"] [role="tab"] span{color:inherit!important;opacity:1!important;font-size:14px!important;font-weight:650!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[role="tab"][aria-selected="true"]{color:#fff!important;border-bottom:3px solid #f28c50!important;background:#202428!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#252a2f!important}\n[data-testid="stTabs"] button[role="tab"]:focus-visible{outline:2px solid #f28c50!important;outline-offset:-2px!important}\n[data-testid="stTabs"] [data-baseweb="tab-highlight"]{background:#f28c50!important}\n</style>', unsafe_allow_html=True)
 st.markdown('\n<style>\n/* FOXK contrast polish: scoped to Streamlit\'s actual widgets */\n[data-testid="stTabs"] [data-baseweb="tab-list"]{gap:3px!important;border-bottom:1px solid #41474e!important}\n[data-testid="stTabs"] button[role="tab"], [data-testid="stTabs"] button[data-baseweb="tab"]{color:#d4d9df!important;opacity:1!important;font-weight:650!important;border-radius:0!important;transition:color .12s ease,border-color .12s ease!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] button[data-baseweb="tab"] *{color:inherit!important;opacity:1!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[aria-selected="true"]{color:#fff!important;border-bottom:2px solid #f18a4b!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#20252a!important}\n/* Labels in main panel */\n[data-testid="stMain"] [data-testid="stWidgetLabel"] p,[data-testid="stMain"] [data-testid="stWidgetLabel"] label,[data-testid="stMain"] [data-testid="stWidgetLabel"]{color:#dbe0e6!important;opacity:1!important}\n/* Select widgets: dark throughout, including arrow section */\n[data-testid="stSelectbox"] [data-baseweb="select"]>div,[data-testid="stSelectbox"] [data-baseweb="select"]>div>div{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div{border:1px solid #4b545d!important;border-radius:7px!important;box-shadow:none!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] *{color:#f6f7f8!important;-webkit-text-fill-color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] svg{fill:#dce1e6!important;color:#dce1e6!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] [role="button"]{background:transparent!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div:focus-within{border-color:#f18a4b!important}\n[data-baseweb="popover"] [role="listbox"], [data-baseweb="popover"] ul{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]:hover,[data-baseweb="popover"] [aria-selected="true"]{background:#39424b!important}\n/* Number input buttons and text */\n[data-testid="stNumberInput"] [data-baseweb="input"]>div,[data-testid="stNumberInput"] button{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stNumberInput"] svg{fill:#dce1e6!important}\n/* Reduce visual gaps without changing content */\n[data-testid="stMain"] .block-container{padding-top:1.1rem!important}\n[data-testid="stMain"] [data-testid="stVerticalBlock"]{row-gap:.7rem}\n@media(max-width:800px){[data-testid="stTabs"] button[role="tab"]{padding:10px 12px!important}}\n</style>\n', unsafe_allow_html=True)
@@ -816,11 +979,8 @@ if st.session_state.foxk_section == NAV_ITEMS[7]:
     else: st.info('Your watchlist is empty.')
 
 if st.session_state.foxk_section == NAV_ITEMS[8]:
-    st.subheader('VIP access — Whop setup')
-    st.warning('This publicly hosted Streamlit app is NOT currently protected by Whop authentication.')
-    st.write('To enforce active paid memberships, FOXK needs a verified Whop login/entitlement flow, a secure backend, and a deployed callback URL.')
-    st.write('Until that integration is configured, keep this app public for testing and do not advertise it as members-only.')
-    st.write('Discord role automation in Whop is separate from protecting the Streamlit website.')
-    st.caption('Do not paste Whop API secrets, signing keys, or private tokens into GitHub or this app.')
+    st.subheader('FOXK VIP access')
+    st.success('Whop sign-in and active-product membership verification are enabled.')
+    st.caption('Your membership is rechecked on every app rerun. Discord role synchronization must be configured separately in Whop.')
 
 st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
