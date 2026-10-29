@@ -126,12 +126,16 @@ def describe_rates(frame,metric,threshold):
     if x.empty:return None
     return {'games':len(x),'average':round(x.mean(),1),'over':int((x>threshold).sum()),'push':int((x==threshold).sum())}
 
+# Tighten the top padding without changing the navigation or data logic.
+st.markdown('''<style>
+[data-testid="stMain"] .block-container {padding-top:0.35rem!important;}
+[data-testid="stMain"] h1 {margin-top:0!important;}
+</style>''', unsafe_allow_html=True)
 st.title('FOXK  /  NBA STAT LAB')
 st.caption('PLAYER RESEARCH  /  NBA DATA  /  ESPN GAME LOGS')
 with st.expander('Data source & methodology'):
     st.caption('ESPN public basketball endpoints (unofficial). Statistics appear only when the provider returns usable game logs. No fabricated data or guessed matchups.')
 # Global player and season selection; research filters belong to their own sections.
-st.markdown('**PLAYER SEARCH**')
 top_left,top_right=st.columns([3,1])
 with top_left:
     search=st.text_input('Find player',placeholder='Search NBA players',key='foxk_player_query')
