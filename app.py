@@ -2,7 +2,14 @@ import streamlit as st
 import requests, pandas as pd, datetime as dt, time
 
 st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
-st.markdown('''<style>.stApp{background:#090f20;color:#f5f7ff}.block-container{padding-top:2rem;max-width:1350px}h1,h2,h3{color:#f5f7ff!important}[data-testid='stMetric']{background:#18233d;padding:16px;border-radius:13px;border:1px solid #293755}[data-testid='stMetricValue'],[data-testid='stMetricLabel']{color:#f5f7ff!important}[data-baseweb='tab-list']{gap:8px;flex-wrap:wrap}[data-baseweb='tab']{background:#19233c;border-radius:9px;color:#f5f7ff}div[data-testid='stAlert']{border-radius:10px}</style>''',unsafe_allow_html=True)
+st.markdown('''<style>.stApp{background:#090f20;color:#f5f7ff}.block-container{padding-top:2rem;max-width:1350px}h1,h2,h3{color:#f5f7ff!important}[data-testid='stMetric']{background:#18233d;padding:16px;border-radius:13px;border:1px solid #293755}[data-testid='stMetricValue'],[data-testid='stMetricLabel']{color:#f5f7ff!important}[data-baseweb='tab-list']{gap:8px;flex-wrap:wrap}[data-baseweb='tab']{background:#19233c;border-radius:9px;color:#f5f7ff}div[data-testid='stAlert']{border-radius:10px}
+[data-baseweb='tab-list'] button,[data-baseweb='tab-list'] button p,
+[data-baseweb='tab-list'] button span{color:#e9efff!important;opacity:1!important;font-weight:650!important}
+[data-baseweb='tab-list'] button[aria-selected='true']{background:#243b63!important;border-bottom:3px solid #62d6ff!important}
+[data-baseweb='tab-list'] button:hover{background:#304262!important}
+[data-testid='stSidebar'] label,[data-testid='stSidebar'] p{color:#17233b!important}
+[data-testid='stCaptionContainer']{color:#b8c5e1!important}
+</style>''',unsafe_allow_html=True)
 BASE='https://site.api.espn.com/apis/site/v2/sports/basketball/nba'
 WEB='https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba'
 S=requests.Session()
@@ -437,7 +444,15 @@ with tabs[4]:
                 st.metric('Completed games',len(defense))
                 st.metric('Opponent points allowed / game',f"{defense['Points allowed'].mean():.1f}")
                 st.caption('Raw team points allowed is affected by pace and opponent strength. Do not interpret as a position-specific defensive rating.')
-                st.dataframe(defense.sort_values('Date',ascending=False),use_container_width=True,hide_index=True)
+                defense=defense.sort_values('Date',ascending=False).reset_index(drop=True)
+                dc=st.columns(3)
+                for i,(name,n) in enumerate([('Last 5',5),('Last 10',10),('All returned',len(defense))]):
+                    part=defense.head(n)
+                    dc[i].metric(f'{name} allowed (n={len(part)})',f"{part['Points allowed'].mean():.1f}")
+                if len(defense)>1:
+                    st.caption(f"Range: {defense['Points allowed'].min():.0f}–{defense['Points allowed'].max():.0f} points allowed across completed games.")
+                st.bar_chart(defense.iloc[::-1].set_index('Date')['Points allowed'])
+                st.dataframe(defense,use_container_width=True,hide_index=True)
                 st.download_button('Download defensive game sample',defense.to_csv(index=False),file_name='FOXK_team_defense.csv',mime='text/csv')
         except Exception as e:st.warning(f'ESPN team schedule data unavailable: {e}')
     st.divider()
@@ -445,26 +460,75 @@ with tabs[4]:
     st.info('Individual possession-level player-versus-defender stats are not provided by this free data source. FOXK does not infer defensive assignments from team game logs.')
 
 with tabs[5]:
-
-    st.subheader('FOXK automated scouting report')
-    st.caption('Free evidence-based written analysis; this is a rules-based research assistant, not a generative AI model. It uses only the game logs currently retrieved.')
+    st.subheader('FOXK matchup research assistant')
+    st.caption('Free rules-based scouting from actual ESPN game logs. No paid AI model, fabricated defender matchups, or invented predictions.')
     source=player_log(selected['id'],season).copy()
-    if source.empty:st.warning('No game logs available for a scouting report.')
+    if source.empty:
+        st.warning('No game logs available for this report.')
     else:
-        if opponent.strip() and 'opponent' in source:source=source[source['opponent'].astype(str).str.upper()==opponent.strip().upper()]
-        if location!='All' and 'homeAway' in source:source=source[source['homeAway'].astype(str).str.lower()==location.lower()]
-        source=source.sort_values('date',ascending=False) if 'date' in source else source
-        st.markdown(f'#### {selected["name"]} — research notes')
-        st.write(f'Sample: **{len(source)}** recorded games from {season-1}–{str(season)[-2:]}' + (f' against **{opponent.upper()}**' if opponent.strip() else '') + (f' at **{location.lower()}**' if location!='All' else '') + '.')
-        for m in ['PTS','REB','AST','PRA','PR','PA','RA','3PM','MIN']:
-            if m in source and source[m].notna().any():
-                recent=source[m].dropna().head(5)
-                allvals=source[m].dropna()
-                st.write(f'**{m}:** {allvals.mean():.1f} across {len(allvals)} games; last {len(recent)} in this sample averaged {recent.mean():.1f}.')
-        if stat in source and source[stat].notna().any():
-            stats=describe_rates(source,stat,line)
-            st.write(f'**{stat} over {line:g}:** {stats["over"]}/{stats["games"]} recorded games ({stats["over"]/stats["games"]:.1%}); {stats["push"]} pushes. This is a historical hit rate, not a predictive probability.')
-        st.info('Interpretation: a small sample, opponent changes, lineup shifts, and different minutes can distort these trends. Confirm player availability and the current line before making decisions.')
-        st.caption('Source: ESPN unofficial NBA game-log endpoint. No invented projections or defender assignments.')
+        if 'date' in source:
+            source=source.sort_values('date',ascending=False)
+        st.markdown(f"### {selected['name']} — {season-1}–{str(season)[-2:]} scouting brief")
+        st.write(f"**Season sample:** {len(source)} recorded game logs. Results below use only games with the relevant numeric stat.")
+        st.markdown('#### Form and playing time')
+        report_rows=[]
+        for m in ['MIN','PTS','REB','AST','3PM','PRA','PR','PA','RA','FGA','FTA']:
+            if m not in source: continue
+            vals=source[m].dropna()
+            if vals.empty: continue
+            recent5=vals.head(5)
+            recent10=vals.head(10)
+            report_rows.append({
+                'Metric':m,'Season games':len(vals),
+                'Season avg':round(float(vals.mean()),2),
+                'Last 5 avg':round(float(recent5.mean()),2),
+                'Last 10 avg':round(float(recent10.mean()),2)
+            })
+        if report_rows:
+            st.dataframe(pd.DataFrame(report_rows),hide_index=True,use_container_width=True)
+        else:
+            st.warning('No numeric statistics are available to summarize.')
+        st.markdown('#### Selected prop — historical evidence')
+        if stat in source:
+            for label,part in [('Last 5',source.head(5)),('Last 10',source.head(10)),('Season',source)]:
+                r=describe_rates(part,stat,line)
+                if r:
+                    st.write(f"**{label}:** {r['over']}/{r['games']} over {line:g} {stat} "
+                             f"({r['over']/r['games']:.1%}); {r['push']} pushes; "
+                             f"average {r['average']:.1f}.")
+        else:
+            st.info(f'No reliable {stat} values are available.')
+        st.markdown('#### Opponent and location')
+        if opponent.strip():
+            if 'opponent' in source:
+                matchup=source[source['opponent'].astype(str).str.upper()==opponent.strip().upper()]
+                st.write(f"**Against {opponent.strip().upper()} this season:** {len(matchup)} recorded games.")
+                r=describe_rates(matchup,stat,line)
+                if r:
+                    st.write(f"**{stat}:** {r['average']:.1f} average; {r['over']}/{r['games']} above {line:g}.")
+                else:
+                    st.info('Insufficient opponent-specific data for the selected stat.')
+            else:
+                st.info('Opponent codes are unavailable in these game logs.')
+        else:
+            st.caption('Enter an opponent abbreviation in the sidebar to add a same-season matchup comparison.')
+        if 'homeAway' in source and stat in source:
+            loc_rows=[]
+            for loc in ['home','away']:
+                part=source[source['homeAway'].astype(str).str.lower()==loc]
+                r=describe_rates(part,stat,line)
+                if r:
+                    loc_rows.append({'Location':loc.title(),'Games':r['games'],
+                                     f'{stat} avg':r['average'],
+                                     'Over hits':r['over'],'Pushes':r['push']})
+            if loc_rows:
+                st.dataframe(pd.DataFrame(loc_rows),hide_index=True,use_container_width=True)
+        st.markdown('#### Data-quality checklist')
+        st.write('- This report uses game-log averages, not a predictive betting model.')
+        st.write('- A teammate missing from a log is not proof of a confirmed injury.')
+        st.write('- Team points allowed cannot identify which defender guarded a player.')
+        st.write('- Very small opponent and venue samples are especially unstable.')
+        st.write('- ESPN endpoints are unofficial and may omit games or change format.')
+        st.caption('Source: ESPN public NBA game-log endpoints. Verify the game log and current availability before using these trends.')
 
 st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
