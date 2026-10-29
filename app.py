@@ -57,10 +57,11 @@ def foxk_login_url(cfg):
 
 def foxk_token_exchange(cfg, code, verifier):
     # Keep all secrets and authorization codes server-side.
-    response = requests.post(FOXK_OAUTH + "/token", data={
+    # Whop's documented token exchange: JSON body, PKCE verifier, no client_secret.
+    response = requests.post(FOXK_OAUTH + "/token", json={
         "grant_type": "authorization_code", "code": code,
         "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
-        "client_secret": cfg["client_secret"], "code_verifier": verifier,
+        "code_verifier": verifier,
     }, headers={"Accept": "application/json"}, timeout=15)
     if not response.ok:
         # Whitelist OAuth error identifiers; NEVER print response text,
@@ -168,7 +169,8 @@ def foxk_gate():
             st.session_state["foxk_whop_expires"] = time.time() + min(int(tokens.get("expires_in", 3600)), 3600)
         except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
             FOXK_LOG.error("OAuth callback failed: %s", type(exc).__name__)
-            st.error("Whop sign-in could not be verified. Check the latest FOXK auth message in Streamlit logs.")
+            detail = str(exc) if isinstance(exc, ValueError) and str(exc).startswith("Whop ") else ""
+            st.error(("Whop sign-in could not be verified. " + detail).strip())
             st.stop()
     user = st.session_state.get("foxk_whop_user")
     access = st.session_state.get("foxk_whop_access")
