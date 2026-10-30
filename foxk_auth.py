@@ -89,7 +89,7 @@ def require_vip():
             db.auth.sign_out()
             st.session_state.foxk_session = None
             st.rerun()
-admin_result = (
+    admin_result = (
     db.table("foxk_admins")
     .select("user_id")
     .eq("user_id", user.id)
@@ -97,9 +97,10 @@ admin_result = (
     .execute()
 )
 
-if admin_result.data:
-    st.sidebar.success("FOXK OWNER ACCESS")
-    return
+       if admin_result.data:
+            st.sidebar.success("FOXK OWNER ACCESS")
+            return
+
         membership = (
             db.table("vip_members")
             .select("status,access_expires_at")
