@@ -1,5 +1,5 @@
-
-import streamlit as st
+ import streamlit as st
+from datetime import datetime, timezone
 from supabase import create_client
 
 
@@ -12,7 +12,6 @@ def get_supabase():
 
 def require_vip():
     db = get_supabase()
-
     st.sidebar.markdown("### FOXK ACCOUNT")
 
     if "foxk_session" not in st.session_state:
@@ -22,17 +21,12 @@ def require_vip():
 
     if session is None:
         st.title("FOXK / MEMBER LOGIN")
-
-        login_tab, signup_tab = st.tabs(
-            ["Log In", "Create Account"]
-        )
+        login_tab, signup_tab = st.tabs(["Log In", "Create Account"])
 
         with login_tab:
             with st.form("foxk_login"):
                 email = st.text_input("Email")
-                password = st.text_input(
-                    "Password", type="password"
-                )
+                password = st.text_input("Password", type="password")
                 submitted = st.form_submit_button("Log In")
 
                 if submitted:
@@ -49,12 +43,8 @@ def require_vip():
         with signup_tab:
             with st.form("foxk_signup"):
                 email = st.text_input("Email address")
-                password = st.text_input(
-                    "Create password", type="password"
-                )
-                submitted = st.form_submit_button(
-                    "Create FOXK Account"
-                )
+                password = st.text_input("Create password", type="password")
+                submitted = st.form_submit_button("Create FOXK Account")
 
                 if submitted:
                     try:
@@ -72,10 +62,7 @@ def require_vip():
         st.stop()
 
     try:
-        db.auth.set_session(
-            session.access_token,
-            session.refresh_token,
-        )
+        db.auth.set_session(session.access_token, session.refresh_token)
         user_response = db.auth.get_user()
         user = user_response.user
 
@@ -89,15 +76,16 @@ def require_vip():
             db.auth.sign_out()
             st.session_state.foxk_session = None
             st.rerun()
-    admin_result = (
-    db.table("foxk_admins")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybe_single()
-    .execute()
-)
 
-       if admin_result.data:
+        admin_result = (
+            db.table("foxk_admins")
+            .select("user_id")
+            .eq("user_id", user.id)
+            .maybe_single()
+            .execute()
+        )
+
+        if admin_result.data:
             st.sidebar.success("FOXK OWNER ACCESS")
             return
 
@@ -110,17 +98,12 @@ def require_vip():
         )
 
         record = membership.data
-
-        from datetime import datetime, timezone
-
         active = False
 
         if record:
             expires = record.get("access_expires_at")
             if expires:
-                expiry = datetime.fromisoformat(
-                    expires.replace("Z", "+00:00")
-                )
+                expiry = datetime.fromisoformat(expires.replace("Z", "+00:00"))
                 active = (
                     record.get("status") in ("active", "trialing")
                     and expiry > datetime.now(timezone.utc)
