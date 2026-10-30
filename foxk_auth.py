@@ -89,7 +89,7 @@ def require_vip():
 
     except Exception as error:
         st.session_state.foxk_session = None
-        st.error(f"Login session error: {error}")
+        st.error(f"FOXK LOGIN TEST 1030: {error}")
         st.stop()
 
     if not user:
