@@ -866,6 +866,148 @@ body [data-baseweb="popover"] [data-baseweb="input"] {
 }
 </style>""", unsafe_allow_html=True)
 
+
+# Distinctive FOXK chart design: orange area, green hit dots, floating threshold.
+def foxk_overview_chart(data, stat, threshold):
+    base = alt.Chart(data).encode(
+        x=alt.X('_game_index:Q', title=None,
+                axis=alt.Axis(grid=False, labelColor='#A5B8D5', tickMinStep=1, domain=False)),
+        y=alt.Y('_value:Q', title=None, scale=alt.Scale(zero=False, padding=24),
+                axis=alt.Axis(gridColor='#293C58', labelColor='#A5B8D5', domain=False)),
+        tooltip=[alt.Tooltip('_game_label:N', title='GAME'),
+                 alt.Tooltip('_opponent:N', title='OPPONENT'),
+                 alt.Tooltip('_value:Q', title=stat, format='.1f'),
+                 alt.Tooltip('_result:N', title='RESULT')],
+    )
+    glow = base.mark_line(color='#FF995D', strokeWidth=10, opacity=.12, interpolate='monotone')
+    fill = base.mark_area(color=alt.Gradient(
+        gradient='linear', x1=0, y1=0, x2=0, y2=1,
+        stops=[alt.GradientStop(color='#FF995D', offset=0),
+               alt.GradientStop(color='#101B2E', offset=1)]
+    ), opacity=.23, interpolate='monotone')
+    line = base.mark_line(color='#FF995D', strokeWidth=3.5, interpolate='monotone')
+    dots = base.mark_circle(size=120, stroke='#101B2E', strokeWidth=2).encode(
+        color=alt.condition(alt.datum._hit, alt.value('#40E0B2'), alt.value('#FF995D')))
+    ref = alt.Chart(pd.DataFrame({'target':[float(threshold)]})).mark_rule(
+        color='#B9C9E4', strokeDash=[7,5], strokeWidth=2
+    ).encode(y='target:Q')
+    chart=(fill + glow + ref + line + dots).properties(
+        height=350, background='#101B2E', padding=22
+    ).configure_view(stroke='#344963', cornerRadius=18).configure_axis(labelFontSize=12)
+    st.altair_chart(chart, use_container_width=True, theme=None)
+
+
+# FOXK unified visuals for every research section.
+def foxk_trend_chart(frame, x_col, series, threshold_name=None):
+    """Dark, interactive Altair line chart with honest historical data."""
+    view = frame[[x_col] + series].copy()
+    view[x_col] = view[x_col].astype(str)
+    long = view.melt(id_vars=[x_col], value_vars=series, var_name="Series", value_name="Value")
+    long["Value"] = pd.to_numeric(long["Value"], errors="coerce")
+    long = long.dropna(subset=["Value"])
+    if long.empty:
+        st.info("No numeric values available for this chart.")
+        return
+    names = [name for name in series if name != threshold_name]
+    colors = ["#FF995D", "#60A5FA", "#A78BFA", "#38D9AD"]
+    palette = [colors[i % len(colors)] for i in range(len(names))]
+    if threshold_name:
+        names.append(threshold_name)
+        palette.append("#A1AFC7")
+    base = alt.Chart(long).encode(
+        x=alt.X(f"{x_col}:N", sort=None, title=None,
+                axis=alt.Axis(labelAngle=-35, labelColor="#A7B8D3", tickColor="#31445F", domain=False)),
+        y=alt.Y("Value:Q", title=None, scale=alt.Scale(zero=False),
+                axis=alt.Axis(labelColor="#A7B8D3", gridColor="#26354B", domain=False)),
+        color=alt.Color("Series:N", scale=alt.Scale(domain=names, range=palette),
+                        legend=alt.Legend(orient="top", title=None, labelColor="#D7E2F6")),
+        tooltip=[alt.Tooltip(f"{x_col}:N", title="Game"),
+                 alt.Tooltip("Series:N"), alt.Tooltip("Value:Q", format=".1f")],
+    )
+    if threshold_name:
+        actual = base.transform_filter(alt.datum.Series != threshold_name)
+        limit = base.transform_filter(alt.datum.Series == threshold_name)
+        chart = (actual.mark_line(strokeWidth=9, opacity=.13, interpolate="monotone")
+                 + actual.mark_line(point=alt.OverlayMarkDef(filled=True, size=90),
+                                    strokeWidth=3.5, interpolate="monotone")
+                 + limit.mark_line(strokeDash=[7, 5], strokeWidth=2.5))
+    else:
+        chart = (base.mark_line(strokeWidth=9, opacity=.13, interpolate="monotone")
+                 + base.mark_line(point=alt.OverlayMarkDef(filled=True, size=90),
+                                  strokeWidth=3.5, interpolate="monotone"))
+    chart = chart.properties(height=350, background="#101B2E", padding=22).configure_view(
+        stroke="#344963", cornerRadius=18
+    ).configure_axis(labelFontSize=12, titleColor="#C8D5EB")
+    st.altair_chart(chart, use_container_width=True, theme=None)
+
+st.markdown("""<style>
+/* Global FOXK styling, applies to all nine navigation pages. */
+[data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+  color:#C1D0E8!important;font-size:12px!important;font-weight:750!important;
+  text-transform:uppercase!important;letter-spacing:.065em!important;
+}
+[data-testid="stMain"] [data-testid="stTextInput"] [data-baseweb="input"],
+[data-testid="stMain"] [data-testid="stTextArea"] [data-baseweb="textarea"],
+[data-testid="stMain"] [data-testid="stDateInput"] [data-baseweb="input"],
+[data-testid="stMain"] [data-testid="stTimeInput"] [data-baseweb="input"] {
+  background:#111D31!important;border:1px solid #405574!important;
+  border-radius:15px!important;overflow:hidden!important;
+}
+[data-testid="stMain"] [data-testid="stTextInput"] input,
+[data-testid="stMain"] [data-testid="stTextArea"] textarea,
+[data-testid="stMain"] [data-testid="stDateInput"] input {
+  background:#111D31!important;color:#F8FAFC!important;
+  -webkit-text-fill-color:#F8FAFC!important;
+}
+[data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
+  background:#111D31!important;color:#F8FAFC!important;
+  -webkit-text-fill-color:#F8FAFC!important;
+}
+[data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+  border:1px solid #405574!important;border-radius:15px!important;
+}
+[data-testid="stMain"] [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+  background:#304464!important;color:#FFC19B!important;
+}
+[data-testid="stMain"] .stButton > button,
+[data-testid="stMain"] [data-testid="stDownloadButton"] > button {
+  background:#1A2A43!important;color:#F8FAFC!important;
+  border:1px solid #425A7B!important;border-radius:14px!important;
+  min-height:43px!important;font-weight:700!important;
+}
+[data-testid="stMain"] .stButton > button:hover,
+[data-testid="stMain"] [data-testid="stDownloadButton"] > button:hover {
+  background:#263B5A!important;border-color:#FF995D!important;
+}
+[data-testid="stMain"] [data-testid="stTabs"] [role="tablist"] {
+  background:#101B2E!important;border-radius:14px!important;
+  padding:5px!important;border:1px solid #344965!important;
+}
+[data-testid="stMain"] [data-testid="stTabs"] button[role="tab"] {
+  color:#A8BAD5!important;border-radius:10px!important;
+}
+[data-testid="stMain"] [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+  color:#FFF!important;background:#2B405E!important;
+}
+[data-testid="stMain"] [data-testid="stMetric"] {
+  background:linear-gradient(140deg,#19263F,#111B2E)!important;
+  border:1px solid #344562!important;border-radius:18px!important;
+  padding:18px!important;
+}
+[data-testid="stMain"] [data-testid="stMetricValue"] {
+  color:#FFB184!important;font-weight:800!important;
+}
+[data-testid="stMain"] [data-testid="stDataFrame"] {
+  border:1px solid #344562!important;border-radius:17px!important;
+  overflow:hidden!important;
+}
+[data-testid="stMain"] [data-testid="stAlert"] {
+  border-radius:15px!important;
+}
+</style>""", unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -909,17 +1051,7 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
             chart_data['_hit'] = chart_data['_value'].gt(line)
             if not chart_data.empty:
                 st.markdown('<div class="foxk-chart-kicker">◉ PERFORMANCE TRACKER <span>RECORDED GAMES ONLY</span></div>', unsafe_allow_html=True)
-                base = alt.Chart(chart_data).encode(
-                    x=alt.X('_game_index:Q', title='RECENT GAMES  ·  OLDEST → NEWEST', axis=alt.Axis(tickMinStep=1, grid=False, labelColor='#8193ae', titleColor='#8193ae')),
-                    y=alt.Y('_value:Q', title=stat, scale=alt.Scale(zero=True), axis=alt.Axis(gridColor='#273448', labelColor='#aebdd1', titleColor='#aebdd1')),
-                    tooltip=[alt.Tooltip('_game_label:N', title='Date'),alt.Tooltip('_opponent:N',title='Opponent'),alt.Tooltip('_value:Q',title=stat,format='.1f'),alt.Tooltip('_result:N',title='Result')]
-                )
-                area=base.mark_area(opacity=.12,color='#ff975f',interpolate='monotone')
-                trend=base.mark_line(color='#ff975f',strokeWidth=3.5,interpolate='monotone')
-                dots=base.mark_circle(size=115,stroke='#121b2b',strokeWidth=2).encode(color=alt.condition(alt.datum._hit,alt.value('#60e3ba'),alt.value('#ff975f')))
-                reference=alt.Chart(pd.DataFrame({'threshold':[float(line)]})).mark_rule(color='#a1a9c4',strokeDash=[7,6],strokeWidth=1.7).encode(y='threshold:Q')
-                chart=(area+reference+trend+dots).properties(height=310,background='#101a2a').configure_view(stroke=None).configure_axis(domain=False)
-                st.altair_chart(chart,use_container_width=True,theme=None)
+                foxk_overview_chart(chart_data, stat, line)
                 st.markdown(f'<div class="foxk-chart-legend"><span><i class="foxk-legend-dot"></i> Recorded {stat}</span><span><i class="foxk-legend-rule"></i> Comparison line {line:g}</span><span><i class="foxk-legend-hit"></i> Above line</span></div>',unsafe_allow_html=True)
     st.markdown('<div class="foxk-log-title"><div><div class="foxk-log-kicker">THE RECEIPTS</div><h3>Verified game log</h3></div><span>ESPN GAME DATA</span></div>',unsafe_allow_html=True)
     show=[c for c in ['date','opponent','homeAway','result','MIN','PTS','REB','AST','3PM','STL','BLK'] if c in df.columns]
@@ -1171,7 +1303,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                     graph=graph.iloc[::-1].copy()
                     graph['Game']=[f'Game {i+1}' for i in range(len(graph))]
                 graph['Outcome']=graph['Actual'].apply(lambda v:'Push' if v==prop_line else ('Hit' if (v>prop_line if prop_side=='Over' else v<prop_line) else 'Miss'))
-                st.line_chart(graph.set_index('Game')[['Actual','Threshold']],use_container_width=True)
+                foxk_trend_chart(graph, 'Game', ['Actual', 'Threshold'], threshold_name='Threshold')
                 st.caption('The line chart plots observed game totals and your research threshold; it does not project future results.')
                 st.markdown('#### Opponent comparison')
                 if 'opponent' in filtered and filtered['opponent'].notna().any():
@@ -1395,7 +1527,7 @@ if st.session_state.foxk_section == NAV_ITEMS[4]:
         m[3].metric('Games in sample',len(sample))
         st.markdown('#### Defensive trend')
         trend=defense.head(min(20,len(defense))).iloc[::-1]
-        st.line_chart(trend.set_index('Date')[['Points allowed','Points scored']],color=['#ed854d','#c6d0dc'])
+        foxk_trend_chart(trend, 'Date', ['Points allowed', 'Points scored'])
         st.markdown('#### Home vs. away')
         venues=[]
         for name in ['Home','Away']:
