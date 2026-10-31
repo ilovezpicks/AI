@@ -787,6 +787,25 @@ st.markdown("""<style>
 [data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child:focus-within {border-color:#ff995d!important;box-shadow:0 0 0 3px rgba(255,153,93,.17)!important}
 </style>""", unsafe_allow_html=True)
 
+# FOXK native dark-theme dropdown fallback, works across BaseWeb variants.
+st.markdown("""<style>
+.stApp [data-testid="stSelectbox"] [role="combobox"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
+.stApp [data-testid="stSelectbox"] input,
+.stApp div[data-baseweb="select"] > div,
+.stApp div[data-baseweb="select"] > div > div {
+  background-color:#111d31!important;
+  color:#f8fafc!important;
+  -webkit-text-fill-color:#f8fafc!important;
+}
+.stApp [data-testid="stSelectbox"] [role="combobox"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+  border-radius:16px!important;border:1px solid #435876!important;
+}
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] svg {fill:#ff995d!important;color:#ff995d!important}
+</style>""", unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
