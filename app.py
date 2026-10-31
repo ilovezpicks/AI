@@ -763,6 +763,30 @@ st.markdown("""<style>
 [data-testid="stMain"] [data-testid="stWidgetLabel"] p {font-size:11px!important;letter-spacing:.11em!important}
 </style>""",unsafe_allow_html=True)
 
+# FOXK selectbox final color override — all nested BaseWeb surfaces
+st.markdown("""<style>
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"],
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] div,
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] [role="combobox"],
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] [data-testid="stMarkdownContainer"] {
+ background:#111d31!important;background-color:#111d31!important;
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child {
+ border:1px solid #455b7b!important;border-radius:16px!important;min-height:56px!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 10px 24px rgba(0,0,0,.22)!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] * {
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg,
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg path {
+ color:#ffa66d!important;fill:#ffa66d!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child:hover {border-color:#ff995d!important}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child:focus-within {border-color:#ff995d!important;box-shadow:0 0 0 3px rgba(255,153,93,.17)!important}
+</style>""", unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
