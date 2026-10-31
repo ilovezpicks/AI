@@ -233,292 +233,6 @@ from foxk_auth import require_vip
 
 require_vip()
 
-# ================= FOXK PROP FINDER / PICKFINDER-STYLE WORKSPACE =================
-# Authenticated users only: this runs AFTER require_vip().
-import io
-import math
-from zoneinfo import ZoneInfo
-
-FOXK_MARKETS = {"Points":"PTS","Rebounds":"REB","Assists":"AST","3PM":"3PM",
-                "PRA":"PRA","PR":"PR","PA":"PA","RA":"RA","Steals":"STL","Blocks":"BLK"}
-FOXK_BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
-FOXK_WEB = "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba"
-FOXK_DISCORD_URL = "https://discord.gg/fX3BpQ5T6"
-
-st.markdown("""<style>
-[data-testid="stMain"] .block-container{max-width:1480px!important;padding-top:1rem!important}
-[data-testid="stSelectbox"] [data-baseweb="select"]>div,
-[data-testid="stNumberInput"] [data-baseweb="input"]>div{min-height:39px!important;border-radius:9px!important;background:#182337!important;color:#f6f8ff!important}
-[data-baseweb="popover"] [role="option"],[data-baseweb="popover"] [role="listbox"]{background:#182337!important;color:#f6f8ff!important}
-[data-baseweb="popover"] [role="option"]:hover{background:#2b3c56!important}
-[data-testid="stDataFrame"]{border-radius:12px!important}
-</style>""",unsafe_allow_html=True)
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def foxk_roster():
-    import requests
-    response=requests.get(FOXK_BASE+"/teams",params={"limit":100},timeout=18)
-    response.raise_for_status()
-    teams=response.json().get("sports",[{}])[0].get("leagues",[{}])[0].get("teams",[])
-    roster={}
-    for obj in teams:
-        team=obj.get("team",obj)
-        try:
-            rr=requests.get(FOXK_BASE+"/teams/"+str(team["id"])+"/roster",timeout=12)
-            rr.raise_for_status()
-            groups=rr.json().get("athletes",[])
-            for group in groups:
-                players=group.get("items",[]) if isinstance(group,dict) else []
-                if not players and isinstance(group,dict) and group.get("id"):
-                    players=[group]
-                for player in players:
-                    if player.get("id") and player.get("displayName"):
-                        roster[str(player["id"])]={
-                            "id":str(player["id"]),"name":player["displayName"],
-                            "team":team.get("abbreviation","")}
-        except Exception:
-            continue
-    return roster
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def foxk_log(player_id, season):
-    import requests
-    r=requests.get(f"{FOXK_WEB}/athletes/{player_id}/gamelog",
-                   params={"season":season},timeout=18)
-    r.raise_for_status()
-    payload=r.json()
-    events=payload.get("events",{})
-    if isinstance(events,list):
-        events={str(v.get("id")):v for v in events if isinstance(v,dict)}
-    rows=[]
-    for typ in payload.get("seasonTypes",[]):
-        for cat in typ.get("categories",[]):
-            labels=cat.get("labels") or payload.get("labels",[])
-            for entry in cat.get("events",[]):
-                if not isinstance(entry,dict): continue
-                eid=str(entry.get("eventId") or entry.get("id") or "")
-                ev=events.get(eid,{})
-                stats=entry.get("stats",[])
-                data=dict(zip(labels,stats)) if isinstance(stats,list) else (dict(stats) if isinstance(stats,dict) else {})
-                opponent=ev.get("opponent") or entry.get("opponent") or {}
-                data.update({"date":ev.get("gameDate") or ev.get("date") or entry.get("date"),
-                             "opponent":opponent.get("abbreviation","") if isinstance(opponent,dict) else str(opponent),
-                             "venue":ev.get("homeAway") or entry.get("homeAway") or ""})
-                rows.append(data)
-    if not rows:
-        for entry in payload.get("entries",[]):
-            if isinstance(entry,dict): rows.append(entry)
-    df=pd.DataFrame(rows)
-    if df.empty:return df
-    names={"PTS":["PTS","points"],"REB":["REB","rebounds"],"AST":["AST","assists"],
-           "STL":["STL","steals"],"BLK":["BLK","blocks"],"MIN":["MIN","minutes"],
-           "FGA":["FGA","fieldGoalsAttempted"],"FGM":["FGM","fieldGoalsMade"]}
-    for key,aliases in names.items():
-        col=next((c for c in aliases if c in df),None)
-        if col:df[key]=pd.to_numeric(df[col],errors="coerce")
-    three=next((c for c in ["3PM","3PTM","threePointFieldGoalsMade","3PT","3PT FG"] if c in df),None)
-    if three:
-        df["3PM"]=pd.to_numeric(df[three].astype(str).str.split("-").str[0],errors="coerce")
-    for combo,parts in {"PRA":["PTS","REB","AST"],"PR":["PTS","REB"],
-                        "PA":["PTS","AST"],"RA":["REB","AST"]}.items():
-        if all(x in df for x in parts):
-            df[combo]=df[parts].sum(axis=1,min_count=len(parts))
-    df["date"]=pd.to_datetime(df.get("date"),errors="coerce",utc=True)
-    return df.dropna(subset=["date"]).sort_values("date",ascending=False).drop_duplicates(subset=["date","opponent"])
-
-def foxk_rate(frame,metric,line,window=10):
-    if metric not in frame:return None
-    s=pd.to_numeric(frame[metric],errors="coerce").dropna().head(window)
-    if s.empty:return None
-    return {"n":len(s),"avg":round(float(s.mean()),2),
-            "over":round(float((s>line).mean()*100),1),
-            "under":round(float((s<line).mean()*100),1),
-            "push":int((s==line).sum())}
-
-def foxk_upload_csv(label,key,required):
-    f=st.file_uploader(label,type=["csv"],key=key)
-    if f is None:return pd.DataFrame()
-    try:
-        frame=pd.read_csv(f)
-        missing=set(required)-set(frame.columns)
-        if missing:
-            st.error("CSV missing columns: "+", ".join(sorted(missing)))
-            return pd.DataFrame()
-        return frame
-    except Exception as e:
-        st.error("Cannot read CSV: "+str(e))
-        return pd.DataFrame()
-
-def foxk_pick_add(player,market,line,direction,rate=None,book=""):
-    if "foxk_picks" not in st.session_state:st.session_state.foxk_picks=[]
-    item={"Player":player,"Market":market,"Line":line,"Side":direction,
-          "Hit rate":rate if rate is not None else "N/A","Sportsbook":book}
-    if item not in st.session_state.foxk_picks:
-        st.session_state.foxk_picks.append(item)
-
-def foxk_workspace():
-    st.markdown("## 🦊 FOXK / PROP RESEARCH")
-    st.caption("Real game logs • Exact-line hit rates • Research tools • No invented odds or projections")
-    views=["🔎 Prop Finder","📈 Player Research","🛡️ Matchup Lab",
-           "⚡ FOXK Edge","🎟️ My Picks","🔔 Alerts & Data"]
-    view=st.radio("Research workspace",views,horizontal=True,label_visibility="collapsed",key="foxk_work_view")
-    now=dt.datetime.now(ZoneInfo("America/New_York"))
-    season=st.selectbox("NBA season ending",list(range(now.year+1,now.year-5,-1)),index=0,key="foxk_prop_season")
-    if "foxk_picks" not in st.session_state:st.session_state.foxk_picks=[]
-    if view=="🎟️ My Picks":
-        picks=st.session_state.foxk_picks
-        if not picks:st.info("No saved picks yet. Add one from Prop Finder or Player Research.")
-        else:
-            st.dataframe(pd.DataFrame(picks),hide_index=True,width="stretch")
-            st.download_button("Download pick slip CSV",pd.DataFrame(picks).to_csv(index=False),
-                               file_name="FOXK_picks.csv",mime="text/csv")
-            if st.button("Clear picks"):st.session_state.foxk_picks=[];st.rerun()
-        return
-    if view=="🔔 Alerts & Data":
-        st.subheader("Odds, injuries, line movement & Discord")
-        st.info("Odds and injury data require licensed feeds or uploaded verified CSVs. Automatic monitoring needs a scheduled backend worker; this page does not claim to send background alerts.")
-        odds=foxk_upload_csv("Upload sportsbook odds CSV", "foxk_odds_upload",
-                             ["player","market","line","sportsbook","odds"])
-        if not odds.empty:
-            st.dataframe(odds,hide_index=True,width="stretch")
-            if {"timestamp"}.issubset(odds.columns):
-                st.line_chart(odds.assign(timestamp=pd.to_datetime(odds["timestamp"],errors="coerce")).dropna(subset=["timestamp"]).set_index("timestamp")["line"])
-        injuries=foxk_upload_csv("Upload injury report CSV", "foxk_injury_upload",["player","status"])
-        if not injuries.empty:st.dataframe(injuries,hide_index=True,width="stretch")
-        st.link_button("Open FOXK Discord",FOXK_DISCORD_URL)
-        st.caption("To automate alerts, configure an external worker and Discord webhook; never expose webhook secrets in the browser.")
-        return
-    try:
-        with st.spinner("Loading NBA player index…"):roster=foxk_roster()
-    except Exception as e:
-        st.error(f"NBA roster provider unavailable: {e}")
-        return
-    if not roster:
-        st.warning("No players returned by provider. Try again later.")
-        return
-    names={f"{v['name']} · {v['team']}":v for v in roster.values()}
-    if view=="🔎 Prop Finder":
-        st.subheader("Player prop scanner")
-        st.caption("Upload current sportsbook lines to scan exact-line hit rates. Without lines, enter a player and line manually; no sportsbook odds are assumed.")
-        lines=foxk_upload_csv("Current props CSV (player, market, line, sportsbook, odds)",
-                             "foxk_prop_lines",["player","market","line","sportsbook","odds"])
-        market_name=st.selectbox("Market",list(FOXK_MARKETS),key="foxk_scan_market")
-        minimum=st.slider("Minimum L10 over hit rate",0,100,60,5,key="foxk_scan_min")
-        if not lines.empty:
-            matched=lines[lines["market"].astype(str).str.upper().isin([market_name.upper(),FOXK_MARKETS[market_name]])].copy()
-            st.caption(f"{len(matched)} supplied market lines; scanning up to 60 rows per run to limit provider requests.")
-            if st.button("Scan supplied lines",type="primary"):
-                output=[]
-                index={v["name"].casefold():v for v in roster.values()}
-                for _,line_row in matched.head(60).iterrows():
-                    p=index.get(str(line_row["player"]).strip().casefold())
-                    try:threshold=float(line_row["line"])
-                    except (ValueError,TypeError):continue
-                    if p is None:continue
-                    try:
-                        logs=foxk_log(p["id"],season)
-                        metric=FOXK_MARKETS[market_name]
-                        rates=foxk_rate(logs,metric,threshold)
-                        if rates and rates["over"]>=minimum:
-                            output.append({"Player":p["name"],"Team":p["team"],"Market":market_name,
-                                           "Line":threshold,"Sportsbook":line_row["sportsbook"],
-                                           "Odds":line_row["odds"],"L10 over %":rates["over"],
-                                           "L10 under %":rates["under"],"Games":rates["n"],
-                                           "L10 avg":rates["avg"]})
-                    except Exception:continue
-                st.session_state["foxk_scan_result"]=pd.DataFrame(output)
-            result=st.session_state.get("foxk_scan_result",pd.DataFrame())
-            if not result.empty:
-                st.dataframe(result.sort_values("L10 over %",ascending=False),hide_index=True,width="stretch")
-                st.download_button("Download scanner results",result.to_csv(index=False),
-                                   "FOXK_prop_scanner.csv","text/csv")
-            else:st.info("Scan uploaded lines to see results. Empty results can mean no matches, provider issues, or the hit-rate filter.")
-        else:st.info("Upload a sportsbook lines CSV for a multi-player scan, or use Player Research for manual lines.")
-        return
-    selected_name=st.selectbox("Find Player",list(sorted(names)),key="foxk_find_player")
-    player=names[selected_name]
-    market=st.selectbox("Stat market",list(FOXK_MARKETS),key="foxk_find_market")
-    line=st.number_input("Prop line",min_value=0.0,max_value=200.0,value=20.5,step=0.5,key="foxk_find_line")
-    try:
-        with st.spinner("Loading verified player game logs…"):df=foxk_log(player["id"],season)
-    except Exception as e:
-        st.error(f"Game log provider unavailable: {e}")
-        return
-    metric=FOXK_MARKETS[market]
-    if df.empty or metric not in df:
-        st.warning("No parseable data for this market and season.")
-        return
-    a,b,c,d=st.columns(4)
-    rates=[foxk_rate(df,metric,line,n) for n in [5,10,15,30]]
-    for col,label,r in zip([a,b,c,d],["L5","L10","L15","L30"],rates):
-        col.metric(label+" over",f"{r['over']:.0f}%" if r else "N/A",
-                   f"{r['n']} games" if r else "No data")
-    chart=df[["date",metric]].dropna().head(30).sort_values("date").set_index("date")
-    st.line_chart(chart,reference_lines=[line])
-    st.caption("Over means strictly greater than the selected line. Pushes are excluded from both over and under hits but included in the sample.")
-    if view=="📈 Player Research":
-        left,right=st.columns(2)
-        with left:
-            st.markdown("#### Game log")
-            cols=[c for c in ["date","opponent","venue",metric,"MIN","FGA"] if c in df]
-            st.dataframe(df[cols].head(30),hide_index=True,width="stretch")
-        with right:
-            st.markdown("#### Situational splits")
-            for label,subset in [("Home",df[df.get("venue",pd.Series("",index=df.index)).astype(str).str.lower().isin(["home","h"])]),
-                                 ("Away",df[df.get("venue",pd.Series("",index=df.index)).astype(str).str.lower().isin(["away","a"])])]:
-                r=foxk_rate(subset,metric,line,100)
-                st.write(f"{label}: {r['over']}% over in {r['n']} games" if r else f"{label}: unavailable")
-        st.markdown("#### Teammate availability")
-        st.caption("Upload verified game-by-game teammate availability to calculate with/without splits. The app will not infer missing teammates from box scores.")
-        availability=foxk_upload_csv("Availability CSV (date, teammate, available)", "foxk_availability",
-                                     ["date","teammate","available"])
-        if not availability.empty:
-            teammate=st.selectbox("Teammate",sorted(availability["teammate"].dropna().astype(str).unique()))
-            subset=availability[availability["teammate"].astype(str)==teammate].copy()
-            subset["date"]=pd.to_datetime(subset["date"],errors="coerce",utc=True).dt.date
-            subset["available"]=subset["available"].astype(str).str.lower().isin(["true","1","yes","active"])
-            games=df.copy()
-            games["game_day"]=games["date"].dt.date
-            joined=games.merge(subset[["date","available"]],left_on="game_day",right_on="date",how="inner")
-            for label,mask in [("With teammate",joined["available"]),("Without teammate",~joined["available"])]:
-                r=foxk_rate(joined[mask],metric,line,100)
-                st.write(f"{label}: {r['avg']} average, {r['over']}% over ({r['n']} games)" if r else f"{label}: no matched games")
-    elif view=="🛡️ Matchup Lab":
-        st.markdown("#### Opponent history")
-        opponents=sorted(df["opponent"].dropna().astype(str).unique()) if "opponent" in df else []
-        if opponents:
-            opponent=st.selectbox("Opponent",opponents)
-            sub=df[df["opponent"].astype(str)==opponent]
-            r=foxk_rate(sub,metric,line,100)
-            st.write(f"Against {opponent}: {r['avg']} average, {r['over']}% over ({r['n']} games)" if r else "No data")
-            st.dataframe(sub[[c for c in ["date",metric,"MIN","FGA"] if c in sub]],hide_index=True,width="stretch")
-        st.info("Defense-versus-position rankings require a verified opponent/position dataset. No rankings are fabricated.")
-    elif view=="⚡ FOXK Edge":
-        st.markdown("#### Transparent research score")
-        st.caption("Descriptive research indicator, not a calibrated win probability or betting recommendation.")
-        r5,r10,r15,_=rates
-        if all([r5,r10,r15]):
-            score=round(.25*r5["over"]+.50*r10["over"]+.25*r15["over"],1)
-            st.metric("FOXK trend score / 100",f"{score:.1f}")
-            st.progress(min(1.0,max(0.0,score/100)))
-            st.write("Formula: 25% last 5 + 50% last 10 + 25% last 15 over-line hit rates.")
-            st.warning("Overlapping samples, small sample sizes, injury context, opponent strength and odds are not fully modeled.")
-    st.divider()
-    direction=st.radio("Save side",["Over","Under"],horizontal=True,key="foxk_save_side")
-    if st.button("＋ Add to My Picks",type="primary"):
-        r=foxk_rate(df,metric,line,10)
-        foxk_pick_add(player["name"],market,line,direction,
-                      (r["over"] if direction=="Over" else r["under"]) if r else None)
-        st.success("Saved to My Picks.")
-
-# Research workspace is the new default; legacy sections remain accessible.
-foxk_app_mode=st.radio("FOXK navigation",["🚀 New Prop Research","🏀 Original Stat Lab"],
-                       horizontal=True,key="foxk_app_mode")
-if foxk_app_mode=="🚀 New Prop Research":
-    foxk_workspace()
-    st.stop()
-# ================= END FOXK PROP RESEARCH WORKSPACE =================
-
 st.markdown('\n<style>\n#MainMenu,footer{visibility:hidden}\n[data-testid="stHeader"]{background:#101316!important;height:3rem}\n.stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#101316!important;color:#f0f1f2!important}\n.block-container{max-width:1320px!important;padding-top:1.6rem!important;padding-bottom:4rem!important}\nh1,h2,h3{font-family:Arial,Helvetica,sans-serif!important;letter-spacing:-.035em!important;color:#f4f5f6!important}\nh1{font-size:2.2rem!important;font-weight:800!important;margin-bottom:.1rem!important}\nh2{font-size:1.6rem!important}\np,li,label,span{line-height:1.5}\n[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{color:#aab2bb!important;opacity:1!important}\n[data-testid="stSidebar"]{background:#191d21!important;border-right:1px solid #343a40!important}\n[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,[data-testid="stSidebar"] p,[data-testid="stSidebar"] label{color:#f0f1f2!important}\n[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{color:#d5d9dd!important;font-weight:600!important}\n[data-testid="stSidebar"] input{color:#f0f1f2!important;background:#262b30!important}\n[data-testid="stSidebar"] input::placeholder{color:#a6b0ba!important;opacity:1!important}\n[data-baseweb="select"]>div,[data-baseweb="input"]>div{background:#262b30!important;border:1px solid #454c54!important;border-radius:7px!important}\n[data-baseweb="select"] *,[data-baseweb="input"] input{color:#f0f1f2!important}\n[data-baseweb="select"] svg{fill:#d5d9dd!important}\n[data-baseweb="tab-list"]{gap:0!important;border-bottom:1px solid #343a40!important;flex-wrap:wrap!important}\nbutton[data-baseweb="tab"]{background:transparent!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;padding:13px 16px!important}\nbutton[data-baseweb="tab"] *,button[data-baseweb="tab"]{color:#b5bdc5!important;opacity:1!important;font-weight:650!important}\nbutton[data-baseweb="tab"][aria-selected="true"]{border-bottom:2px solid #ed854d!important}\nbutton[data-baseweb="tab"][aria-selected="true"] *{color:#fff!important}\nbutton[data-baseweb="tab"]:hover *{color:#fff!important}\n[data-testid="stMetric"]{background:#1c2126!important;border:1px solid #363d44!important;border-radius:9px!important;padding:18px 20px!important}\n[data-testid="stMetricLabel"] *,[data-testid="stMetricLabel"]{color:#b8c2cb!important;font-weight:650!important;font-size:.82rem!important}\n[data-testid="stMetricValue"] *,[data-testid="stMetricValue"]{color:#f6f7f8!important;font-weight:750!important}\n[data-testid="stDataFrame"]{border:1px solid #363d44!important;border-radius:8px!important}\n[data-testid="stAlert"]{border:1px solid #38414a!important;border-radius:8px!important}\n.stButton button,[data-testid="stDownloadButton"] button{border-radius:7px!important}\nhr{border-color:#343a40!important}\n@media(max-width:768px){.block-container{padding:1rem!important}h1{font-size:1.65rem!important}button[data-baseweb="tab"]{padding:9px!important}}\n</style>\n',unsafe_allow_html=True)
 st.markdown('<style>\n[data-testid="stTabs"] [role="tablist"]{display:flex!important;flex-wrap:wrap!important;gap:4px!important;border-bottom:1px solid #363c42!important}\n[data-testid="stTabs"] button[role="tab"]{color:#d1d6dd!important;opacity:1!important;background:transparent!important;border:0!important;border-bottom:3px solid transparent!important;padding:12px 15px!important;min-height:46px!important;white-space:nowrap!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] [role="tab"] p,[data-testid="stTabs"] [role="tab"] span{color:inherit!important;opacity:1!important;font-size:14px!important;font-weight:650!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[role="tab"][aria-selected="true"]{color:#fff!important;border-bottom:3px solid #f28c50!important;background:#202428!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#252a2f!important}\n[data-testid="stTabs"] button[role="tab"]:focus-visible{outline:2px solid #f28c50!important;outline-offset:-2px!important}\n[data-testid="stTabs"] [data-baseweb="tab-highlight"]{background:#f28c50!important}\n</style>', unsafe_allow_html=True)
 st.markdown('\n<style>\n/* FOXK contrast polish: scoped to Streamlit\'s actual widgets */\n[data-testid="stTabs"] [data-baseweb="tab-list"]{gap:3px!important;border-bottom:1px solid #41474e!important}\n[data-testid="stTabs"] button[role="tab"], [data-testid="stTabs"] button[data-baseweb="tab"]{color:#d4d9df!important;opacity:1!important;font-weight:650!important;border-radius:0!important;transition:color .12s ease,border-color .12s ease!important}\n[data-testid="stTabs"] button[role="tab"] *,[data-testid="stTabs"] button[data-baseweb="tab"] *{color:inherit!important;opacity:1!important;-webkit-text-fill-color:currentColor!important}\n[data-testid="stTabs"] button[aria-selected="true"]{color:#fff!important;border-bottom:2px solid #f18a4b!important}\n[data-testid="stTabs"] button[role="tab"]:hover{color:#fff!important;background:#20252a!important}\n/* Labels in main panel */\n[data-testid="stMain"] [data-testid="stWidgetLabel"] p,[data-testid="stMain"] [data-testid="stWidgetLabel"] label,[data-testid="stMain"] [data-testid="stWidgetLabel"]{color:#dbe0e6!important;opacity:1!important}\n/* Select widgets: dark throughout, including arrow section */\n[data-testid="stSelectbox"] [data-baseweb="select"]>div,[data-testid="stSelectbox"] [data-baseweb="select"]>div>div{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div{border:1px solid #4b545d!important;border-radius:7px!important;box-shadow:none!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] *{color:#f6f7f8!important;-webkit-text-fill-color:#f6f7f8!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] svg{fill:#dce1e6!important;color:#dce1e6!important}\n[data-testid="stSelectbox"] [data-baseweb="select"] [role="button"]{background:transparent!important}\n[data-testid="stSelectbox"] [data-baseweb="select"]>div:focus-within{border-color:#f18a4b!important}\n[data-baseweb="popover"] [role="listbox"], [data-baseweb="popover"] ul{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]{background:#252b31!important;color:#f6f7f8!important}\n[data-baseweb="popover"] [role="option"]:hover,[data-baseweb="popover"] [aria-selected="true"]{background:#39424b!important}\n/* Number input buttons and text */\n[data-testid="stNumberInput"] [data-baseweb="input"]>div,[data-testid="stNumberInput"] button{background:#252b31!important;color:#f6f7f8!important}\n[data-testid="stNumberInput"] svg{fill:#dce1e6!important}\n/* Reduce visual gaps without changing content */\n[data-testid="stMain"] .block-container{padding-top:1.1rem!important}\n[data-testid="stMain"] [data-testid="stVerticalBlock"]{row-gap:.7rem}\n@media(max-width:800px){[data-testid="stTabs"] button[role="tab"]{padding:10px 12px!important}}\n</style>\n', unsafe_allow_html=True)
@@ -1048,6 +762,30 @@ st.markdown("""<style>
 [data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] div {color:#f7f9ff!important;-webkit-text-fill-color:#f7f9ff!important}
 [data-testid="stMain"] [data-testid="stWidgetLabel"] p {font-size:11px!important;letter-spacing:.11em!important}
 </style>""",unsafe_allow_html=True)
+
+# FOXK selectbox final color override — all nested BaseWeb surfaces
+st.markdown("""<style>
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"],
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] div,
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] [role="combobox"],
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] [data-testid="stMarkdownContainer"] {
+ background:#111d31!important;background-color:#111d31!important;
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child {
+ border:1px solid #455b7b!important;border-radius:16px!important;min-height:56px!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 10px 24px rgba(0,0,0,.22)!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] * {
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg,
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg path {
+ color:#ffa66d!important;fill:#ffa66d!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child:hover {border-color:#ff995d!important}
+[data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:first-child:focus-within {border-color:#ff995d!important;box-shadow:0 0 0 3px rgba(255,153,93,.17)!important}
+</style>""", unsafe_allow_html=True)
 
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
