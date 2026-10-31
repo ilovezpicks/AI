@@ -892,7 +892,7 @@ def foxk_overview_chart(data, stat, threshold):
         color='#B9C9E4', strokeDash=[7,5], strokeWidth=2
     ).encode(y='target:Q')
     chart=(fill + glow + ref + line + dots).properties(
-        height=350, background='#101B2E', padding=22
+        height=350, background='#101B2E'
     ).configure_view(stroke='#344963', cornerRadius=18).configure_axis(labelFontSize=12)
     st.altair_chart(chart, use_container_width=True, theme=None)
 
@@ -987,7 +987,7 @@ def foxk_trend_chart(frame, x_col, series, threshold_name=None):
         chart = (base.mark_line(strokeWidth=9, opacity=.13, interpolate="monotone")
                  + base.mark_line(point=alt.OverlayMarkDef(filled=True, size=90),
                                   strokeWidth=3.5, interpolate="monotone"))
-    chart = chart.properties(height=350, background="#101B2E", padding=22).configure_view(
+    chart = chart.properties(height=350, background="#101B2E").configure_view(
         stroke="#344963", cornerRadius=18
     ).configure_axis(labelFontSize=12, titleColor="#C8D5EB")
     st.altair_chart(chart, use_container_width=True, theme=None)
