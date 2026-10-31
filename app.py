@@ -349,27 +349,6 @@ def foxk_upload_csv(label,key,required):
         st.error("Cannot read CSV: "+str(e))
         return pd.DataFrame()
 
-@st.cache_data(ttl=600,show_spinner=False)
-def foxk_current_injuries(team_abbr):
-    """Best-effort ESPN injuries; never infer that an empty feed means healthy."""
-    import requests
-    teams=requests.get(FOXK_BASE+"/teams",params={"limit":100},timeout=15).json().get("sports",[{}])[0].get("leagues",[{}])[0].get("teams",[])
-    match=next((t.get("team",t) for t in teams if t.get("team",t).get("abbreviation","").upper()==str(team_abbr).upper()),None)
-    if not match:return pd.DataFrame()
-    resp=requests.get(FOXK_BASE+"/teams/"+str(match["id"])+"/injuries",timeout=15)
-    if resp.status_code!=200:return pd.DataFrame()
-    payload=resp.json()
-    entries=payload.get("injuries",[]) if isinstance(payload,dict) else []
-    if isinstance(entries,dict):entries=entries.get("items",[])
-    output=[]
-    for entry in entries:
-        if not isinstance(entry,dict):continue
-        athlete=entry.get("athlete") or {}
-        output.append({"Player":athlete.get("displayName") or entry.get("name") or "Unknown",
-                       "Status":entry.get("status") or entry.get("type",{}).get("description","Unknown") if isinstance(entry.get("type"),dict) else entry.get("status","Unknown"),
-                       "Detail":entry.get("details",{}).get("detail","") if isinstance(entry.get("details"),dict) else ""})
-    return pd.DataFrame(output)
-
 def foxk_pick_add(player,market,line,direction,rate=None,book=""):
     if "foxk_picks" not in st.session_state:st.session_state.foxk_picks=[]
     item={"Player":player,"Market":market,"Line":line,"Side":direction,
@@ -489,62 +468,21 @@ def foxk_workspace():
                                  ("Away",df[df.get("venue",pd.Series("",index=df.index)).astype(str).str.lower().isin(["away","a"])])]:
                 r=foxk_rate(subset,metric,line,100)
                 st.write(f"{label}: {r['over']}% over in {r['n']} games" if r else f"{label}: unavailable")
-        st.markdown("#### Teammate availability — automatic comparison")
-        st.caption("Select teammates to compare actual recorded appearances. No manual CSV required. An absent game-log entry is NOT proof of an injury.")
-        mates=sorted([v for v in roster.values() if v["team"]==player["team"] and v["id"]!=player["id"]],key=lambda x:x["name"])
-        picked=st.multiselect("Teammates to check",mates,format_func=lambda x:x["name"],max_selections=4,key="foxk_auto_mates")
-        if picked and st.button("Calculate with / without",type="primary",key="foxk_auto_calc"):
-            with st.spinner("Checking player and teammate game appearances…"):
-                try:
-                    base=player_log(player["id"],season)
-                    if base.empty or "event_id" not in base:
-                        st.warning("Player event IDs unavailable; unable to verify teammates' appearances.")
-                    else:
-                        base=base.drop_duplicates("event_id").copy()
-                        base=base[base["event_id"].astype(str).str.len()>0]
-                        missing=[]
-                        for mate in picked:
-                            log=player_log(mate["id"],season)
-                            if log.empty or "event_id" not in log:
-                                missing.append(mate["name"])
-                                continue
-                            valid=log[log["event_id"].astype(str).str.len()>0].copy()
-                            if "MIN" in valid and valid["MIN"].notna().any():
-                                valid=valid[valid["MIN"].isna() | (valid["MIN"]>0)]
-                            appearances=set(valid["event_id"].astype(str))
-                            base[mate["name"]+" played"]=base["event_id"].astype(str).isin(appearances)
-                        if missing:st.warning("No teammate game logs for: "+", ".join(missing)+". They were excluded, not counted as OUT.")
-                        columns=[x["name"]+" played" for x in picked if x["name"]+" played" in base]
-                        if columns:
-                            base["All selected played"]=base[columns].all(axis=1)
-                            base["At least one unrecorded"]=~base["All selected played"]
-                            stat_columns=[c for c in ["PTS","REB","AST","3PM","PRA","PR","PA","RA"] if c in base]
-                            if metric not in base and all(c in base for c in ["PTS","REB","AST"]):
-                                base["PRA"]=base["PTS"]+base["REB"]+base["AST"]
-                            rows=[]
-                            for flag,label in [(True,"All selected teammates recorded playing"),(False,"At least one teammate not recorded playing")]:
-                                subset=base[base["All selected played"]==flag]
-                                row={"Situation":label,"Games":len(subset)}
-                                for col in stat_columns:
-                                    row[col+" avg"]=round(float(subset[col].mean()),2) if len(subset) and subset[col].notna().any() else None
-                                if metric in subset:
-                                    rr=foxk_rate(subset,metric,line,100)
-                                    row["Over %"]=rr["over"] if rr else None
-                                rows.append(row)
-                            st.dataframe(pd.DataFrame(rows),hide_index=True,width="stretch")
-                            st.dataframe(base[[c for c in ["date","opponent","event_id"]+columns+["PTS","REB","AST","3PM"] if c in base]].head(60),hide_index=True,width="stretch")
-                            st.caption("A missing teammate appearance can mean injury, rest, DNP, trade, or incomplete provider data. Compare dates against official historical injury reports before calling a teammate OUT.")
-                        else:st.info("No usable teammate logs were returned.")
-                except Exception as exc:
-                    st.warning("Unable to complete teammate comparison: "+str(exc))
-        st.markdown("#### Current team injury designations")
-        st.caption("ESPN injury feed where available; status can change before tipoff. Confirm against the official NBA report.")
-        try:
-            current=foxk_current_injuries(player["team"])
-            if current.empty:st.info("No verified current injury entries returned for this team. This does not mean everyone is healthy.")
-            else:st.dataframe(current,hide_index=True,width="stretch")
-        except Exception as exc:st.info("Current injury feed unavailable: "+str(exc))
-        st.link_button("Official NBA injury reports","https://official.nba.com/nba-injury-report-2026-27-season/")
+        st.markdown("#### Teammate availability")
+        st.caption("Upload verified game-by-game teammate availability to calculate with/without splits. The app will not infer missing teammates from box scores.")
+        availability=foxk_upload_csv("Availability CSV (date, teammate, available)", "foxk_availability",
+                                     ["date","teammate","available"])
+        if not availability.empty:
+            teammate=st.selectbox("Teammate",sorted(availability["teammate"].dropna().astype(str).unique()))
+            subset=availability[availability["teammate"].astype(str)==teammate].copy()
+            subset["date"]=pd.to_datetime(subset["date"],errors="coerce",utc=True).dt.date
+            subset["available"]=subset["available"].astype(str).str.lower().isin(["true","1","yes","active"])
+            games=df.copy()
+            games["game_day"]=games["date"].dt.date
+            joined=games.merge(subset[["date","available"]],left_on="game_day",right_on="date",how="inner")
+            for label,mask in [("With teammate",joined["available"]),("Without teammate",~joined["available"])]:
+                r=foxk_rate(joined[mask],metric,line,100)
+                st.write(f"{label}: {r['avg']} average, {r['over']}% over ({r['n']} games)" if r else f"{label}: no matched games")
     elif view=="🛡️ Matchup Lab":
         st.markdown("#### Opponent history")
         opponents=sorted(df["opponent"].dropna().astype(str).unique()) if "opponent" in df else []
