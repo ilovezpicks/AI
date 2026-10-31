@@ -1060,6 +1060,72 @@ st.markdown("""<style>
 }
 </style>""", unsafe_allow_html=True)
 
+
+# FOXK premium segmented navigation — research sample and any other segmented selectors.
+st.markdown("""<style>
+/* Override the default white segmented-control button group */
+[data-testid="stSegmentedControl"],
+[data-testid="stSegmentedControl"] [data-baseweb="button-group"],
+[data-testid="stSegmentedControl"] [role="group"],
+[data-testid="stSegmentedControl"] > div,
+[data-testid="stSegmentedControl"] > div > div {
+  background:#111D31!important;
+  background-color:#111D31!important;
+  border-color:#344966!important;
+  border-radius:16px!important;
+}
+[data-testid="stSegmentedControl"] [role="group"],
+[data-testid="stSegmentedControl"] [data-baseweb="button-group"] {
+  padding:5px!important;
+  border:1px solid #344966!important;
+  gap:5px!important;
+  box-shadow:0 8px 20px rgba(0,0,0,.18)!important;
+}
+[data-testid="stSegmentedControl"] button,
+[data-testid="stSegmentedControl"] button[kind],
+[data-testid="stSegmentedControl"] label {
+  background:#17263D!important;
+  background-color:#17263D!important;
+  color:#C8D7EC!important;
+  -webkit-text-fill-color:#C8D7EC!important;
+  border:1px solid transparent!important;
+  border-radius:11px!important;
+  min-height:40px!important;
+  font-weight:750!important;
+  box-shadow:none!important;
+}
+[data-testid="stSegmentedControl"] button *,
+[data-testid="stSegmentedControl"] label * {
+  color:inherit!important;
+  -webkit-text-fill-color:inherit!important;
+}
+[data-testid="stSegmentedControl"] button:hover,
+[data-testid="stSegmentedControl"] label:hover {
+  background:#263B58!important;
+  color:#FFF!important;
+  -webkit-text-fill-color:#FFF!important;
+}
+[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+[data-testid="stSegmentedControl"] button[aria-checked="true"],
+[data-testid="stSegmentedControl"] button[data-selected="true"],
+[data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"],
+[data-testid="stSegmentedControl"] label:has(input:checked) {
+  background:linear-gradient(135deg,#FFB079,#FF8548)!important;
+  background-color:#FF995D!important;
+  color:#151A26!important;
+  -webkit-text-fill-color:#151A26!important;
+  border-color:#FFC092!important;
+  box-shadow:0 4px 14px rgba(255,153,93,.22)!important;
+}
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] *,
+[data-testid="stSegmentedControl"] button[data-selected="true"] *,
+[data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"] * {
+  color:#151A26!important;
+  -webkit-text-fill-color:#151A26!important;
+}
+</style>""", unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
