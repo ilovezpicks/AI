@@ -646,21 +646,80 @@ if not valid:
     st.warning('ESPN returned game events but no parseable numeric player box-score statistics. Provider format may have changed.');st.dataframe(df.head(5));st.stop()
 # Native Streamlit navigation buttons: no st.tabs CSS or unreadable inactive labels.
 st.markdown('<div class="foxk-section-marker">Explore your workspace</div>',unsafe_allow_html=True)
+# Keep legacy section IDs for all existing analysis and calculation code.
 NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access']
+FOXK_WORKSPACES = {
+    '🎯 Prop Lab': ['Prop research'],
+    '📈 Player Trends': ['Overview', 'Compare players'],
+    '🛡️ Matchup Intel': ['Team defense', 'Career H2H', 'Scouting report'],
+    '👥 Lineup Impact': ['Teammates'],
+    '⭐ My Watchlist': ['Watchlist'],
+}
+FOXK_SECTION_LABELS = {
+    'Prop research': 'Prop research', 'Overview': 'Game logs & trends',
+    'Compare players': 'Compare players', 'Team defense': 'Opponent defense',
+    'Career H2H': 'Career head-to-head', 'Scouting report': 'Scouting notes',
+    'Teammates': 'Teammate availability', 'Watchlist': 'Saved props',
+}
+FOXK_SUBTITLES = {
+    '🎯 Prop Lab': 'Evaluate the line, recent results, and sample size.',
+    '📈 Player Trends': 'Inspect consistency, minutes, and historical game logs.',
+    '🛡️ Matchup Intel': 'Explore opponent context, head-to-head records, and scouting notes.',
+    '👥 Lineup Impact': 'Compare recorded games with and without selected teammates.',
+    '⭐ My Watchlist': 'Save and export your research before game time.',
+}
 if 'foxk_section' not in st.session_state:
-    st.session_state.foxk_section = NAV_ITEMS[0]
+    st.session_state.foxk_section = 'Prop research'
+if st.session_state.foxk_section not in NAV_ITEMS:
+    st.session_state.foxk_section = 'Prop research'
 
-def choose_foxk_section(section):
+def foxk_workspace_for_section(section):
+    return next((workspace for workspace, children in FOXK_WORKSPACES.items()
+                 if section in children), '🎯 Prop Lab')
+
+if 'foxk_workspace' not in st.session_state:
+    st.session_state.foxk_workspace = foxk_workspace_for_section(st.session_state.foxk_section)
+
+def foxk_choose_workspace(workspace):
+    st.session_state.foxk_workspace = workspace
+    if st.session_state.foxk_section not in FOXK_WORKSPACES[workspace]:
+        st.session_state.foxk_section = FOXK_WORKSPACES[workspace][0]
+
+def foxk_choose_section(section):
     st.session_state.foxk_section = section
 
-for start in (0, 3, 6):
-    nav_cols = st.columns(3, gap='small')
-    for j, section in enumerate(NAV_ITEMS[start:start+3]):
-        with nav_cols[j]:
-            st.button(['◈  Overview','◎  Prop research','♟  Teammates','↗  Career H2H','⬡  Team defense','✦  Scouting report','⇄  Compare players','♡  Watchlist','♛  VIP access'][start+j], key=f'foxk_nav_{start+j}',
+st.markdown('''<div class="foxk-workspace-heading"><span>FOXK / RESEARCH WORKSPACE</span><h3>Find the evidence behind the pick.</h3><p>Explore player form, matchup context and line history without mistaking past results for future probabilities.</p></div>''', unsafe_allow_html=True)
+
+workspaces = list(FOXK_WORKSPACES)
+for offset, count in [(0, 3), (3, 2)]:
+    row = st.columns(count, gap='small')
+    for col, workspace in zip(row, workspaces[offset:offset+count]):
+        with col:
+            st.button(workspace, key='foxk_workspace_'+str(workspaces.index(workspace)),
+                      use_container_width=True,
+                      type='primary' if st.session_state.foxk_workspace == workspace else 'secondary',
+                      on_click=foxk_choose_workspace, args=(workspace,))
+
+current_workspace = st.session_state.foxk_workspace
+st.markdown(f'<div class="foxk-workspace-caption">{FOXK_SUBTITLES[current_workspace]}</div>', unsafe_allow_html=True)
+subsections = FOXK_WORKSPACES[current_workspace]
+if len(subsections) > 1:
+    subcols = st.columns(len(subsections), gap='small')
+    for col, section in zip(subcols, subsections):
+        with col:
+            st.button(FOXK_SECTION_LABELS[section], key='foxk_sub_'+str(NAV_ITEMS.index(section)),
+                      use_container_width=True,
                       type='primary' if st.session_state.foxk_section == section else 'secondary',
-                      use_container_width=True, on_click=choose_foxk_section, args=(section,))
-st.markdown(f'<div class="foxk-current-section"><strong>{st.session_state.foxk_section}</strong><small>FOXK / RESEARCH WORKSPACE</small></div>',unsafe_allow_html=True)
+                      on_click=foxk_choose_section, args=(section,))
+st.markdown(f'<div class="foxk-current-section"><strong>{FOXK_SECTION_LABELS.get(st.session_state.foxk_section, st.session_state.foxk_section)}</strong><small>FOXK / {current_workspace.replace("🎯 ", "").replace("📈 ", "").replace("🛡️ ", "").replace("👥 ", "").replace("⭐ ", "").upper()}</small></div>',unsafe_allow_html=True)
+
+st.markdown('''<style>
+.foxk-workspace-heading{margin:10px 0 18px;padding:18px 22px;border:1px solid #344963;border-radius:19px;background:linear-gradient(120deg,#1B2A44,#10192C)}
+.foxk-workspace-heading span{font-size:10px;font-weight:850;letter-spacing:.16em;color:#FFAD78}
+.foxk-workspace-heading h3{font-size:24px!important;margin:7px 0!important;color:#fff!important}
+.foxk-workspace-heading p{color:#AFC1DE;font-size:13px;margin:0}
+.foxk-workspace-caption{font-size:13px;color:#AFC1DE;margin:10px 0 15px}
+</style>''',unsafe_allow_html=True)
 
 st.markdown("""<style>
 /* FOXK performance card / game log: App Store edition */
