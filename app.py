@@ -729,6 +729,40 @@ st.markdown("""<style>
 @media(max-width:640px){.foxk-controls-title{padding:12px 14px}}
 </style>""",unsafe_allow_html=True)
 
+st.markdown("""<style>
+/* FOXK FINAL INPUT SKIN — target the real input nodes, not only wrappers */
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] input,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"],
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] > div,
+[data-testid="stMain"] [data-testid="stNumberInput"] input,
+[data-testid="stMain"] [data-testid="stNumberInput"] input[type="number"] {
+ background:#111d31!important;background-color:#111d31!important;
+ color:#fff!important;-webkit-text-fill-color:#fff!important;
+ caret-color:#ff995d!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] {
+ border:1px solid #3d536f!important;border-radius:18px!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 12px 24px rgba(0,0,0,.24)!important;
+ min-height:58px!important;overflow:hidden!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"]:hover {
+ border-color:#ff985d!important;
+}
+[data-testid="stMain"] [data-testid="stNumberInput"] button {
+ background:#243550!important;color:#ffb486!important;
+ border-left:1px solid #455a77!important;min-width:47px!important;
+}
+[data-testid="stMain"] [data-testid="stNumberInput"] button:hover {background:#364968!important}
+[data-testid="stMain"] [data-testid="stNumberInput"] input::placeholder {color:#a9b9d1!important;-webkit-text-fill-color:#a9b9d1!important}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] span,
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] div {color:#f7f9ff!important;-webkit-text-fill-color:#f7f9ff!important}
+[data-testid="stMain"] [data-testid="stWidgetLabel"] p {font-size:11px!important;letter-spacing:.11em!important}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
