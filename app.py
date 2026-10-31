@@ -1275,6 +1275,37 @@ div[data-baseweb="popover"] [data-baseweb="tag"] {
 }
 </style>""",unsafe_allow_html=True)
 
+
+st.markdown("""<style>
+/* FOXK global dark expandable panels and checkbox pickers */
+[data-testid="stExpander"] {
+  background:#111D31!important;border:1px solid #3B5376!important;
+  border-radius:16px!important;overflow:hidden!important;
+}
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+  background:#111D31!important;color:#F8FAFC!important;
+}
+[data-testid="stExpander"] summary:hover {
+  background:#1E304C!important;
+}
+[data-testid="stExpander"] summary p,
+[data-testid="stExpander"] summary svg {
+  color:#F8FAFC!important;fill:#FF995D!important;
+}
+[data-testid="stExpander"] [data-testid="stCheckbox"] label {
+  background:#1B2C46!important;border:1px solid #3C5474!important;
+  border-radius:11px!important;padding:7px 9px!important;
+}
+[data-testid="stExpander"] [data-testid="stCheckbox"] label:hover {
+  border-color:#FF995D!important;
+}
+[data-testid="stExpander"] [data-testid="stCheckbox"] label p {
+  color:#F8FAFC!important;
+}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -1713,17 +1744,29 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
     with h2h_cols[0]: stat=st.selectbox('H2H metric',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'],key='foxk_h2h_stat')
     with h2h_cols[1]: line=st.number_input('H2H comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_h2h_line')
     # End-year values, e.g. 2027 means the 2026-27 season.
+    # Compact season picker using native checkboxes rather than the white BaseWeb multi-select.
+    # No popup, overlapping arrow glyphs, or bright red chips.
+    if 'foxk_h2h_year_selection' not in st.session_state:
+        st.session_state.foxk_h2h_year_selection = list(range(2027, 2016, -1))
+    selected_years = st.session_state.foxk_h2h_year_selection
     st.markdown('**HISTORICAL SEASONS TO INCLUDE**')
-    with st.popover('📅 Choose historical seasons', use_container_width=True):
-        h2h_years=st.multiselect(
-            'NBA season ending year',
-            list(range(2027,2010,-1)),
-            default=list(range(2027,2016,-1)),
-            key='foxk_h2h_years',
-            help='2027 means 2026–27. Seasons before the player entered the NBA have no games.'
-        )
+    with st.expander(f"📅  {len(selected_years)} seasons selected  ·  Edit seasons", expanded=False):
+        st.caption("Select the NBA season ending years to include in Career H2H.")
+        season_cols = st.columns(4)
+        updated_years = []
+        for idx, year in enumerate(range(2027, 2010, -1)):
+            with season_cols[idx % 4]:
+                checked = st.checkbox(
+                    f"{year-1}–{str(year)[-2:]}",
+                    value=year in selected_years,
+                    key=f"foxk_h2h_season_checkbox_{year}",
+                )
+                if checked:
+                    updated_years.append(year)
+        st.session_state.foxk_h2h_year_selection = updated_years
+    h2h_years = st.session_state.foxk_h2h_year_selection
     if h2h_years:
-        st.caption(f"{len(h2h_years)} seasons selected · {min(h2h_years)-1}–{str(max(h2h_years))[-2:]} through {max(h2h_years)-1}–{str(max(h2h_years))[-2:]}")
+        st.caption(f"{len(h2h_years)} seasons selected · {min(h2h_years)-1}–{str(min(h2h_years))[-2:]} through {max(h2h_years)-1}–{str(max(h2h_years))[-2:]}")
     h2h_run=st.button('Load full head-to-head history',type='primary',key='foxk_h2h_load')
     if h2h_run:
         if not h2h_years:
