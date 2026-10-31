@@ -1,5 +1,6 @@
 import streamlit as st
 import requests, pandas as pd, datetime as dt, time
+import altair as alt
 
 st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
 # FOXK Whop VIP gate — runs before any research data is fetched.
@@ -661,6 +662,24 @@ for start in (0, 3, 6):
                       use_container_width=True, on_click=choose_foxk_section, args=(section,))
 st.markdown(f'<div class="foxk-current-section"><strong>{st.session_state.foxk_section}</strong><small>FOXK / RESEARCH WORKSPACE</small></div>',unsafe_allow_html=True)
 
+st.markdown("""<style>
+/* FOXK performance card / game log: App Store edition */
+.foxk-chart-kicker{display:flex;justify-content:space-between;gap:12px;align-items:center;color:#ffab77;font-size:11px;font-weight:850;letter-spacing:.15em;margin:18px 0 10px}
+.foxk-chart-kicker span{font-size:10px;color:#8194b1;letter-spacing:.10em}
+[data-testid="stVegaLiteChart"]{background:linear-gradient(155deg,#121e31,#0e1727)!important;border:1px solid #2d3d54!important;border-radius:22px!important;padding:14px 15px 5px!important;box-shadow:0 12px 35px rgba(0,0,0,.22)}
+.foxk-chart-legend{display:flex;gap:20px;flex-wrap:wrap;color:#aebbd0;font-size:12px;margin:8px 0 28px}
+.foxk-chart-legend span{display:inline-flex;align-items:center;gap:7px}
+.foxk-legend-dot,.foxk-legend-hit{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff975f}
+.foxk-legend-hit{background:#60e3ba}
+.foxk-legend-rule{display:inline-block;width:18px;border-top:2px dashed #a1a9c4}
+.foxk-log-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:23px 0 15px}
+.foxk-log-title h3{margin:3px 0 0!important;font-size:1.65rem!important;letter-spacing:-.04em!important}
+.foxk-log-kicker{font-size:10px;font-weight:850;color:#ffab77;letter-spacing:.18em}
+.foxk-log-title>span{border:1px solid #354762;background:#18273a;color:#a7bdd7;padding:7px 11px;border-radius:100px;font-size:10px;font-weight:750;letter-spacing:.09em}
+[data-testid="stDataFrame"]{border:1px solid #34445d!important;border-radius:19px!important;overflow:hidden!important;box-shadow:0 12px 35px rgba(0,0,0,.19)}
+@media(max-width:700px){.foxk-chart-legend{gap:10px}.foxk-log-title h3{font-size:1.35rem!important}}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -684,10 +703,56 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
         if len(s):
             hits=int((s>line).sum()); st.metric(f'{stat} over {line:g} historical hit rate',f'{hits}/{len(s)} ({hits/len(s):.1%})')
             st.caption('Descriptive past hit rate, not a prediction or betting probability. Pushes are not counted as overs.')
-            st.line_chart(df.sort_values('date').set_index('date')[stat] if 'date' in df else df[stat])
-    st.subheader('Verified game log')
+            # Premium FOXK trend chart: real game-log data, with an editable comparison line.
+            chart_data = df.copy()
+            if 'date' in chart_data:
+                chart_data['_game_date'] = pd.to_datetime(chart_data['date'], errors='coerce', utc=True)
+                chart_data = chart_data.sort_values('_game_date')
+            else:
+                chart_data['_game_date'] = pd.date_range('2020-01-01', periods=len(chart_data), freq='D', tz='UTC')
+            chart_data['_value'] = pd.to_numeric(chart_data[stat], errors='coerce')
+            chart_data = chart_data.dropna(subset=['_game_date', '_value']).copy()
+            chart_data['_game_label'] = chart_data['_game_date'].dt.strftime('%b %d')
+            chart_data['_game_index'] = range(1, len(chart_data) + 1)
+            chart_data['_opponent'] = chart_data['opponent'].fillna('Unknown').astype(str) if 'opponent' in chart_data else 'Unknown'
+            chart_data['_result'] = chart_data['result'].fillna('—').astype(str) if 'result' in chart_data else '—'
+            chart_data['_hit'] = chart_data['_value'].gt(line)
+            if not chart_data.empty:
+                st.markdown('<div class="foxk-chart-kicker">◉ PERFORMANCE TRACKER <span>RECORDED GAMES ONLY</span></div>', unsafe_allow_html=True)
+                base = alt.Chart(chart_data).encode(
+                    x=alt.X('_game_index:Q', title='RECENT GAMES  ·  OLDEST → NEWEST', axis=alt.Axis(tickMinStep=1, grid=False, labelColor='#8193ae', titleColor='#8193ae')),
+                    y=alt.Y('_value:Q', title=stat, scale=alt.Scale(zero=True), axis=alt.Axis(gridColor='#273448', labelColor='#aebdd1', titleColor='#aebdd1')),
+                    tooltip=[alt.Tooltip('_game_label:N', title='Date'),alt.Tooltip('_opponent:N',title='Opponent'),alt.Tooltip('_value:Q',title=stat,format='.1f'),alt.Tooltip('_result:N',title='Result')]
+                )
+                area=base.mark_area(opacity=.12,color='#ff975f',interpolate='monotone')
+                trend=base.mark_line(color='#ff975f',strokeWidth=3.5,interpolate='monotone')
+                dots=base.mark_circle(size=115,stroke='#121b2b',strokeWidth=2).encode(color=alt.condition(alt.datum._hit,alt.value('#60e3ba'),alt.value('#ff975f')))
+                reference=alt.Chart(pd.DataFrame({'threshold':[float(line)]})).mark_rule(color='#a1a9c4',strokeDash=[7,6],strokeWidth=1.7).encode(y='threshold:Q')
+                chart=(area+reference+trend+dots).properties(height=310,background='#101a2a').configure_view(stroke=None).configure_axis(domain=False)
+                st.altair_chart(chart,use_container_width=True,theme=None)
+                st.markdown(f'<div class="foxk-chart-legend"><span><i class="foxk-legend-dot"></i> Recorded {stat}</span><span><i class="foxk-legend-rule"></i> Comparison line {line:g}</span><span><i class="foxk-legend-hit"></i> Above line</span></div>',unsafe_allow_html=True)
+    st.markdown('<div class="foxk-log-title"><div><div class="foxk-log-kicker">THE RECEIPTS</div><h3>Verified game log</h3></div><span>ESPN GAME DATA</span></div>',unsafe_allow_html=True)
     show=[c for c in ['date','opponent','homeAway','result','MIN','PTS','REB','AST','3PM','STL','BLK'] if c in df.columns]
-    st.dataframe(df[show],use_container_width=True,hide_index=True)
+    display_log=df[show].copy()
+    if 'date' in display_log:
+        formatted_dates=pd.to_datetime(display_log['date'],errors='coerce',utc=True)
+        display_log['date']=formatted_dates.dt.strftime('%b %d, %Y').fillna(display_log['date'].astype(str))
+    display_log=display_log.rename(columns={'date':'DATE','opponent':'OPP','homeAway':'VENUE','result':'W/L'})
+    numeric_cols=[col for col in ['MIN','PTS','REB','AST','3PM','STL','BLK'] if col in display_log]
+    for col in numeric_cols:
+        display_log[col]=pd.to_numeric(display_log[col],errors='coerce')
+    def _foxk_stat_shade(column):
+        return ['background-color:rgba(255,151,95,.14);color:#ffb887;font-weight:750' if pd.notna(v) else '' for v in column]
+    styled_log=display_log.style
+    if stat in numeric_cols:
+        styled_log=styled_log.apply(_foxk_stat_shade,subset=[stat])
+    styled_log=styled_log.format({col:'{:.0f}' for col in numeric_cols},na_rep='—')
+    st.dataframe(styled_log,use_container_width=True,hide_index=True,height=min(490,42+36*len(display_log)),column_config={
+        'DATE':st.column_config.TextColumn('DATE',width='medium'),
+        'OPP':st.column_config.TextColumn('OPP',width='small'),
+        'VENUE':st.column_config.TextColumn('VENUE',width='small'),
+        'W/L':st.column_config.TextColumn('W/L',width='small'),
+    })
     st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
 
 # All 30 NBA franchises are selectable, including teams not yet faced this season.
