@@ -877,32 +877,26 @@ if not valid:
 # Native Streamlit navigation buttons: no st.tabs CSS or unreadable inactive labels.
 st.markdown('<div class="foxk-section-marker">Explore your workspace</div>',unsafe_allow_html=True)
 # Keep legacy section IDs for all existing analysis and calculation code.
-NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access', 'Prop Finder', 'Prop Analyzer', 'Line Movement', 'Injury Context', 'Pick Tracker', 'FOXK Assistant', 'Today Dashboard', 'Smart Watchlist']
+NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access']
 FOXK_WORKSPACES = {
     '🎯 Prop Lab': ['Prop research'],
     '📈 Player Trends': ['Overview', 'Compare players'],
     '🛡️ Matchup Intel': ['Team defense', 'Career H2H', 'Scouting report'],
     '👥 Lineup Impact': ['Teammates'],
-    '⭐ My Watchlist': ['Watchlist', 'Smart Watchlist', 'Pick Tracker'],
-    '🚀 Pro Tools': ['Today Dashboard', 'Prop Finder', 'Prop Analyzer', 'Line Movement', 'Injury Context', 'FOXK Assistant'],
+    '⭐ My Watchlist': ['Watchlist'],
 }
 FOXK_SECTION_LABELS = {
     'Prop research': 'Prop research', 'Overview': 'Game logs & trends',
     'Compare players': 'Compare players', 'Team defense': 'Opponent defense',
     'Career H2H': 'Career head-to-head', 'Scouting report': 'Scouting notes',
     'Teammates': 'Teammate availability', 'Watchlist': 'Saved props',
-    'Prop Finder': 'Prop Finder', 'Prop Analyzer': 'Prop Analyzer',
-    'Line Movement': 'Line Movement', 'Injury Context': 'Injury Context',
-    'Pick Tracker': 'Pick Tracker', 'FOXK Assistant': 'Research Assistant',
-    'Today Dashboard': "Today's Slate", 'Smart Watchlist': 'Smart Watchlist',
 }
 FOXK_SUBTITLES = {
     '🎯 Prop Lab': 'Evaluate the line, recent results, and sample size.',
     '📈 Player Trends': 'Inspect consistency, minutes, and historical game logs.',
     '🛡️ Matchup Intel': 'Explore opponent context, head-to-head records, and scouting notes.',
     '👥 Lineup Impact': 'Compare recorded games with and without selected teammates.',
-    '⭐ My Watchlist': 'Save research and track results transparently.',
-    '🚀 Pro Tools': 'Explore the slate, analyze props, track line changes, and investigate context.',
+    '⭐ My Watchlist': 'Save and export your research before game time.',
 }
 if 'foxk_section' not in st.session_state:
     st.session_state.foxk_section = 'Prop research'
@@ -927,7 +921,7 @@ def foxk_choose_section(section):
 st.markdown('''<div class="foxk-workspace-heading"><span>FOXK / RESEARCH WORKSPACE</span><h3>Find the evidence behind the pick.</h3><p>Explore player form, matchup context and line history without mistaking past results for future probabilities.</p></div>''', unsafe_allow_html=True)
 
 workspaces = list(FOXK_WORKSPACES)
-for offset, count in [(0, 3), (3, 3)]:
+for offset, count in [(0, 3), (3, 2)]:
     row = st.columns(count, gap='small')
     for col, workspace in zip(row, workspaces[offset:offset+count]):
         with col:
@@ -940,16 +934,14 @@ current_workspace = st.session_state.foxk_workspace
 st.markdown(f'<div class="foxk-workspace-caption">{FOXK_SUBTITLES[current_workspace]}</div>', unsafe_allow_html=True)
 subsections = FOXK_WORKSPACES[current_workspace]
 if len(subsections) > 1:
-    for batch_start in range(0, len(subsections), 3):
-        group = subsections[batch_start:batch_start+3]
-        subcols = st.columns(len(group), gap='small')
-        for col, section in zip(subcols, group):
-            with col:
-                st.button(FOXK_SECTION_LABELS[section], key='foxk_sub_'+str(NAV_ITEMS.index(section)),
-                          use_container_width=True,
-                          type='primary' if st.session_state.foxk_section == section else 'secondary',
-                          on_click=foxk_choose_section, args=(section,))
-st.markdown(f'<div class="foxk-current-section"><strong>{FOXK_SECTION_LABELS.get(st.session_state.foxk_section, st.session_state.foxk_section)}</strong><small>FOXK / {current_workspace.replace("🎯 ", "").replace("📈 ", "").replace("🛡️ ", "").replace("👥 ", "").replace("⭐ ", "").replace("🚀 ", "").upper()}</small></div>',unsafe_allow_html=True)
+    subcols = st.columns(len(subsections), gap='small')
+    for col, section in zip(subcols, subsections):
+        with col:
+            st.button(FOXK_SECTION_LABELS[section], key='foxk_sub_'+str(NAV_ITEMS.index(section)),
+                      use_container_width=True,
+                      type='primary' if st.session_state.foxk_section == section else 'secondary',
+                      on_click=foxk_choose_section, args=(section,))
+st.markdown(f'<div class="foxk-current-section"><strong>{FOXK_SECTION_LABELS.get(st.session_state.foxk_section, st.session_state.foxk_section)}</strong><small>FOXK / {current_workspace.replace("🎯 ", "").replace("📈 ", "").replace("🛡️ ", "").replace("👥 ", "").replace("⭐ ", "").upper()}</small></div>',unsafe_allow_html=True)
 
 st.markdown('''<style>
 .foxk-workspace-heading{margin:10px 0 18px;padding:18px 22px;border:1px solid #344963;border-radius:19px;background:linear-gradient(120deg,#1B2A44,#10192C)}
@@ -2314,8 +2306,5 @@ if st.session_state.foxk_section == NAV_ITEMS[8]:
     st.subheader('FOXK VIP access')
     st.success('Whop sign-in and active-product membership verification are enabled.')
     st.caption('Your membership is rechecked on every app rerun. Discord role synchronization must be configured separately in Whop.')
-
-from foxk_pro_tools import render_pro_tools
-render_pro_tools(st.session_state.foxk_section, selected, df, season, all_players, player_log, foxk_dark_table, foxk_today_scoreboard)
 
 st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
