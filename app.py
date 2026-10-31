@@ -737,6 +737,64 @@ with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False
     except Exception as exc:
         st.warning(f'Schedule feed unavailable: {exc}')
 
+
+# FOXK player search and season selector — use exact widget targets across the app.
+st.markdown("""<style>
+/* Search input: style BOTH BaseWeb outer shell and the real input. */
+div[data-testid="stTextInput"] div[data-baseweb="input"],
+div[data-testid="stTextInput"] div[data-baseweb="input"] > div,
+div[data-testid="stTextInput"] div[data-baseweb="input"] input,
+div[data-testid="stTextInput"] input[type="text"] {
+  background:#111D31!important;background-color:#111D31!important;
+  color:#F8FAFC!important;-webkit-text-fill-color:#F8FAFC!important;
+}
+div[data-testid="stTextInput"] div[data-baseweb="input"] {
+  border:1px solid #3E5577!important;border-radius:15px!important;
+  box-shadow:0 6px 18px rgba(0,0,0,.15)!important;
+  overflow:hidden!important;
+}
+div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+  border-color:#FF995D!important;box-shadow:0 0 0 2px rgba(255,153,93,.13)!important;
+}
+div[data-testid="stTextInput"] input::placeholder {
+  color:#879DBE!important;-webkit-text-fill-color:#879DBE!important;
+}
+/* All selectboxes: eliminate white outer shell, inner flex wrappers, and input */
+div[data-testid="stSelectbox"] div[data-baseweb="select"],
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] input,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] [role="combobox"] {
+  background:#111D31!important;background-color:#111D31!important;
+  color:#F8FAFC!important;-webkit-text-fill-color:#F8FAFC!important;
+}
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+  border:1px solid #3E5577!important;border-radius:15px!important;
+  overflow:hidden!important;
+}
+div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within > div {
+  border-color:#FF995D!important;
+}
+/* Selectbox open menu */
+div[data-baseweb="popover"] [role="listbox"],
+div[data-baseweb="popover"] [role="option"] {
+  background:#111D31!important;color:#F8FAFC!important;
+}
+div[data-baseweb="popover"] [role="option"]:hover,
+div[data-baseweb="popover"] [aria-selected="true"] {
+  background:#263C5C!important;color:#FFB78A!important;
+}
+/* Streamlit info/warning panels: navy, not default bright blue */
+div[data-testid="stAlert"] {
+  background:#101D32!important;border:1px solid #2F496C!important;
+  border-radius:15px!important;
+}
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] span {
+  color:#BBD0EE!important;
+}
+</style>""", unsafe_allow_html=True)
+
 # Global player and season selection; research filters belong to their own sections.
 top_left,top_right=st.columns([3,1])
 with top_left:
