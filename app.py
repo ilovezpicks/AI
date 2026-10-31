@@ -806,6 +806,66 @@ st.markdown("""<style>
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] svg {fill:#ff995d!important;color:#ff995d!important}
 </style>""", unsafe_allow_html=True)
 
+# FOXK dropdown: remove the pale outer shell and theme the OPEN menu as well.
+st.markdown(r"""<style>
+/* Every nested surface of the select, including the pale right-hand arrow rail. */
+.stApp [data-testid="stSelectbox"],
+.stApp [data-testid="stSelectbox"] div,
+.stApp [data-testid="stSelectbox"] [role="combobox"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] *,
+.stApp [data-testid="stSelectbox"] input {
+  background-color:#111d31 !important;
+  color:#f8fafc !important;
+  -webkit-text-fill-color:#f8fafc !important;
+}
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+  border:1px solid #435876 !important;
+  border-radius:16px !important;
+  overflow:hidden !important;
+  box-shadow:0 10px 22px rgba(0,0,0,.2) !important;
+}
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"]:focus-within > div {
+  border-color:#ff995d !important;
+  box-shadow:0 0 0 2px rgba(255,153,93,.15) !important;
+}
+.stApp [data-testid="stSelectbox"] svg,
+.stApp [data-testid="stSelectbox"] svg path {
+  color:#ff995d !important;
+  fill:#ff995d !important;
+}
+/* Streamlit renders opened dropdowns in a portal outside the select element. */
+body [data-baseweb="popover"],
+body [data-baseweb="popover"] > div,
+body [data-baseweb="popover"] [data-baseweb="menu"],
+body [data-baseweb="popover"] [role="listbox"],
+body [data-baseweb="popover"] [role="option"],
+body [data-baseweb="popover"] li,
+body [data-baseweb="menu"],
+body [data-baseweb="menu"] li,
+body [role="listbox"],
+body [role="listbox"] [role="option"] {
+  background-color:#111d31 !important;
+  color:#f8fafc !important;
+  -webkit-text-fill-color:#f8fafc !important;
+  border-color:#344763 !important;
+}
+body [data-baseweb="popover"] [role="option"]:hover,
+body [data-baseweb="popover"] li:hover,
+body [role="listbox"] [role="option"]:hover,
+body [role="listbox"] [aria-selected="true"] {
+  background-color:#263a55 !important;
+  color:#ffb486 !important;
+  -webkit-text-fill-color:#ffb486 !important;
+}
+body [data-baseweb="popover"] input,
+body [data-baseweb="popover"] [data-baseweb="input"] {
+  background-color:#17263c !important;
+  color:#f8fafc !important;
+  -webkit-text-fill-color:#f8fafc !important;
+}
+</style>""", unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
