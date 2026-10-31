@@ -412,7 +412,7 @@ st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 :root{--foxk-bg:#090e17;--foxk-surface:#111a29;--foxk-edge:#263348;--foxk-orange:#ff965a;--foxk-text:#f5f8ff;--foxk-muted:#9eacc0}
 .stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:radial-gradient(ellipse at 88% 0%,#18263b 0%,transparent 42%),linear-gradient(160deg,#0c1320 0%,#090e17 78%)!important;color:var(--foxk-text)!important}
-html,body,p,li,label,span,button,input{font-family:'DM Sans',Arial,sans-serif!important}
+html,body,p,li,label,button,input{font-family:'DM Sans',Arial,sans-serif!important}
 h1,h2,h3,h4{font-family:'Space Grotesk','DM Sans',sans-serif!important;letter-spacing:-.025em!important;color:var(--foxk-text)!important}
 [data-testid="stHeader"]{background:rgba(9,14,23,.88)!important;border-bottom:1px solid #263348!important;backdrop-filter:blur(14px)}
 [data-testid="stMain"] .block-container{max-width:1440px!important;padding:1.2rem 2rem 5rem!important}
@@ -494,7 +494,7 @@ hr{border-color:rgba(172,194,225,.13)!important}
 st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 :root{--ultra-bg:#070910;--ultra-card:#101625;--ultra-edge:rgba(183,198,238,.14);--ultra-violet:#9b7cff;--ultra-orange:#ff9869}
-html,body,.stApp,.stApp *{font-family:'Manrope',sans-serif}
+html,body,.stApp{font-family:'Manrope',sans-serif}
 h1,h2,h3,h4,[data-testid='stMetricValue']{font-family:'Space Grotesk',sans-serif!important}
 .stApp,[data-testid='stAppViewContainer'],[data-testid='stMain']{background:radial-gradient(ellipse 58% 35% at 83% 3%,rgba(106,66,196,.17),transparent 75%),radial-gradient(ellipse 44% 36% at 1% 56%,rgba(250,107,64,.08),transparent 85%),#070910!important}
 [data-testid='stHeader']{background:rgba(7,9,16,.8)!important;backdrop-filter:blur(24px)!important;border-bottom:1px solid rgba(255,255,255,.065)!important}
@@ -1303,6 +1303,45 @@ st.markdown("""<style>
 }
 [data-testid="stExpander"] [data-testid="stCheckbox"] label p {
   color:#F8FAFC!important;
+}
+</style>""",unsafe_allow_html=True)
+
+
+st.markdown("""<style>
+/* FIX: Global font rules must not override Streamlit's Material icon glyphs. */
+.material-icons,
+.material-icons-outlined,
+.material-icons-round,
+.material-icons-sharp,
+.material-icons-two-tone {
+  font-family:"Material Icons"!important;
+  font-weight:normal!important;font-style:normal!important;
+  letter-spacing:normal!important;text-transform:none!important;
+  white-space:nowrap!important;word-wrap:normal!important;
+  font-feature-settings:"liga"!important;-webkit-font-feature-settings:"liga"!important;
+}
+.material-symbols-rounded,
+.material-symbols-outlined,
+.material-symbols-sharp,
+span[data-testid="stIconMaterial"] {
+  font-family:"Material Symbols Rounded"!important;
+  font-weight:normal!important;font-style:normal!important;
+  letter-spacing:normal!important;text-transform:none!important;
+  white-space:nowrap!important;font-feature-settings:"liga"!important;
+  -webkit-font-feature-settings:"liga"!important;
+}
+[data-testid="stExpander"] summary {
+  display:flex!important;align-items:center!important;
+  gap:12px!important;min-height:52px!important;
+  padding:12px 16px!important;
+}
+[data-testid="stExpander"] summary p {
+  color:#F8FAFC!important;font-weight:750!important;
+  margin:0!important;line-height:1.45!important;
+}
+[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"] {
+  flex-shrink:0!important;width:22px!important;min-width:22px!important;
+  overflow:hidden!important;
 }
 </style>""",unsafe_allow_html=True)
 
