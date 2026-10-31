@@ -489,6 +489,62 @@ hr{border-color:rgba(172,194,225,.13)!important}
 @media(max-width:700px){[data-testid='stMain'] .block-container{padding:.8rem .7rem 4rem!important}.foxk-app-hero{border-radius:21px;padding:21px 19px 23px;margin-bottom:15px}.foxk-app-top{margin-bottom:21px}.foxk-app-tiles span{padding:7px 9px;font-size:.69rem}div[class*='st-key-foxk_nav_'] button{min-height:45px!important;font-size:.72rem!important;padding:.3rem!important}[data-testid='stMetric']{padding:15px!important;border-radius:15px!important}}
 @media(prefers-reduced-motion:reduce){.stButton button{transition:none!important}.stButton button:hover{transform:none!important}}
 </style>""",unsafe_allow_html=True)
+# FOXK ULTRA — visual-only override. Existing login, stats, API calls remain intact.
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+:root{--ultra-bg:#070910;--ultra-card:#101625;--ultra-edge:rgba(183,198,238,.14);--ultra-violet:#9b7cff;--ultra-orange:#ff9869}
+html,body,.stApp,.stApp *{font-family:'Manrope',sans-serif}
+h1,h2,h3,h4,[data-testid='stMetricValue']{font-family:'Space Grotesk',sans-serif!important}
+.stApp,[data-testid='stAppViewContainer'],[data-testid='stMain']{background:radial-gradient(ellipse 58% 35% at 83% 3%,rgba(106,66,196,.17),transparent 75%),radial-gradient(ellipse 44% 36% at 1% 56%,rgba(250,107,64,.08),transparent 85%),#070910!important}
+[data-testid='stHeader']{background:rgba(7,9,16,.8)!important;backdrop-filter:blur(24px)!important;border-bottom:1px solid rgba(255,255,255,.065)!important}
+[data-testid='stMain'] .block-container{max-width:1520px!important;padding:1.15rem clamp(.75rem,3vw,3rem) 5rem!important}
+[data-testid='stSidebar']{background:linear-gradient(180deg,#111525,#0a0d16)!important;border-right:1px solid var(--ultra-edge)!important}
+.foxk-app-hero{border-radius:32px!important;padding:38px 42px!important;background:radial-gradient(circle at 85% 28%,rgba(255,140,92,.24),transparent 33%),radial-gradient(circle at 64% 110%,rgba(128,88,255,.25),transparent 55%),linear-gradient(120deg,#1a1e35,#101627 62%,#221828)!important;border:1px solid rgba(201,191,255,.24)!important;box-shadow:0 28px 75px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.10)!important}
+.foxk-app-hero h1{font-size:clamp(2.6rem,6vw,5.6rem)!important;letter-spacing:-.075em!important}
+.foxk-app-hero h1 em{background:linear-gradient(100deg,#ffb37f 15%,#ffa1b9 53%,#bba7ff 100%)!important;background-clip:text!important;-webkit-background-clip:text!important;-webkit-text-fill-color:transparent!important}
+.foxk-app-icon{border-radius:15px!important;background:linear-gradient(135deg,#ffb476,#fa7771 60%,#ac78ff)!important;box-shadow:0 8px 30px rgba(253,120,96,.3)!important}
+.foxk-app-chip{border-color:rgba(193,166,255,.4)!important;background:rgba(144,104,240,.17)!important;color:#d8c7ff!important}
+.foxk-app-tiles span{background:rgba(255,255,255,.07)!important;border-color:rgba(255,255,255,.13)!important;border-radius:100px!important;backdrop-filter:blur(10px)!important}
+.foxk-section-marker{color:#aab0d0!important;letter-spacing:.18em!important}
+.foxk-section-marker:before{background:#b69aff!important;box-shadow:0 0 0 4px rgba(171,137,255,.12)!important}
+/* App-launcher style navigation tiles */
+div[class*='st-key-foxk_nav_'] button{height:76px!important;min-height:76px!important;border-radius:20px!important;text-align:left!important;justify-content:flex-start!important;padding:15px 18px!important;font-size:.9rem!important;letter-spacing:-.02em!important;font-weight:800!important;position:relative!important;overflow:hidden!important;box-shadow:inset 0 1px rgba(255,255,255,.045),0 8px 18px rgba(0,0,0,.12)!important;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease!important}
+div[class*='st-key-foxk_nav_'] button[kind='secondary']{background:linear-gradient(140deg,#171d30,#101624)!important;border:1px solid rgba(184,196,236,.17)!important;color:#d9e1f5!important}
+div[class*='st-key-foxk_nav_'] button[kind='primary']{background:linear-gradient(115deg,#faab78,#f48a85 50%,#c4a3ff)!important;border:1px solid rgba(255,207,185,.9)!important;color:#211427!important;box-shadow:0 9px 30px rgba(194,119,231,.19)!important}
+div[class*='st-key-foxk_nav_'] button:hover{transform:translateY(-3px)!important;border-color:#c5a4ff!important;box-shadow:0 15px 30px rgba(0,0,0,.25)!important}
+div[class*='st-key-foxk_nav_'] button:focus-visible{outline:2px solid #c8a8ff!important;outline-offset:2px!important}
+/* Bento-style metric tiles */
+[data-testid='stMetric']{border-radius:24px!important;background:linear-gradient(150deg,rgba(32,37,62,.96),rgba(14,19,34,.97))!important;border:1px solid rgba(181,172,255,.17)!important;padding:25px 24px!important;box-shadow:0 15px 36px rgba(0,0,0,.17),inset 0 1px rgba(255,255,255,.06)!important;min-height:130px!important}
+[data-testid='stMetricValue'] *,[data-testid='stMetricValue']{color:#fff!important;font-size:clamp(1.7rem,2.6vw,2.5rem)!important;letter-spacing:-.055em!important}
+[data-testid='stMetricLabel'] *{color:#a9b4d1!important;letter-spacing:.08em!important}
+/* Glassy research cards, expanders, alerts and charts */
+[data-testid='stExpander']{border-radius:22px!important;background:linear-gradient(145deg,rgba(25,30,51,.95),rgba(13,18,31,.94))!important;border:1px solid rgba(174,170,241,.19)!important;box-shadow:0 14px 30px rgba(0,0,0,.12)!important}
+[data-testid='stExpander'] summary{padding:7px 5px!important;font-weight:800!important}
+[data-testid='stDataFrame'],[data-testid='stTable'],[data-testid='stPlotlyChart'],[data-testid='stVegaLiteChart']{border:1px solid rgba(174,170,241,.18)!important;border-radius:20px!important;overflow:hidden!important;background:#111725!important}
+[data-testid='stAlert']{border-radius:18px!important;border:1px solid rgba(174,170,241,.19)!important}
+[data-testid='stHorizontalBlock']{row-gap:12px!important}
+/* Floating inputs, polished filters */
+[data-baseweb='select']>div,[data-baseweb='input']>div,[data-testid='stDateInput'] input,textarea{background:#151b2c!important;border:1px solid rgba(172,187,231,.25)!important;border-radius:15px!important;min-height:50px!important;color:#f6f5ff!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}
+[data-baseweb='select']>div:focus-within,[data-baseweb='input']>div:focus-within{border-color:#ba9cff!important;box-shadow:0 0 0 3px rgba(173,139,255,.15)!important}
+[data-testid='stWidgetLabel'] p{color:#c8d1e9!important;font-weight:750!important}
+[data-baseweb='popover'] [role='listbox'],[data-baseweb='popover'] ul{background:#171d2e!important;border:1px solid #3d405b!important;border-radius:15px!important}
+[data-baseweb='popover'] [role='option']:hover{background:#302c4e!important}
+/* Pill buttons and premium segmented tabs */
+.stButton button,[data-testid='stDownloadButton'] button{border-radius:15px!important;min-height:49px!important;font-weight:800!important}
+.stButton button[kind='primary']:not(div[class*='st-key-foxk_nav_'] button){background:linear-gradient(110deg,#ffb47f,#fa898b,#b99bff)!important;border-color:transparent!important;color:#211427!important}
+[data-testid='stTabs'] [role='tablist']{background:#11182a!important;border:1px solid rgba(174,170,241,.17)!important;padding:6px!important;border-radius:17px!important;gap:5px!important}
+[data-testid='stTabs'] button[role='tab']{border:0!important;border-radius:12px!important;padding:11px 16px!important;color:#bac5dd!important;background:transparent!important}
+[data-testid='stTabs'] button[role='tab'][aria-selected='true']{background:linear-gradient(110deg,#fdab7b,#bd9bff)!important;color:#1b1529!important;box-shadow:0 4px 15px rgba(0,0,0,.2)!important}
+[data-testid='stTabs'] button[role='tab'][aria-selected='true'] *{color:#1b1529!important;-webkit-text-fill-color:#1b1529!important}
+[data-testid='stTabs'] [data-baseweb='tab-highlight']{display:none!important}
+/* Section title ribbon */
+.foxk-current-section{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 22px;padding:16px 22px;background:linear-gradient(100deg,rgba(136,98,229,.18),rgba(255,143,102,.07));border:1px solid rgba(171,147,255,.23);border-radius:19px}
+.foxk-current-section strong{font-family:'Space Grotesk',sans-serif;font-size:1.13rem;color:#f7f3ff}
+.foxk-current-section small{color:#b1a8d5;font-weight:800;letter-spacing:.12em;font-size:.66rem}
+@media(max-width:800px){.foxk-app-hero{padding:23px 20px!important;border-radius:24px!important}div[class*='st-key-foxk_nav_'] button{height:64px!important;min-height:64px!important;padding:10px!important;font-size:.73rem!important;border-radius:14px!important}[data-testid='stMetric']{padding:18px!important;border-radius:18px!important;min-height:100px!important}.foxk-current-section{padding:12px 14px!important}}
+@media(prefers-reduced-motion:reduce){div[class*='st-key-foxk_nav_'] button{transition:none!important}div[class*='st-key-foxk_nav_'] button:hover{transform:none!important}}
+</style>""",unsafe_allow_html=True)
+
 st.markdown("""<div class="foxk-app-hero">
 <div class="foxk-app-top"><div class="foxk-app-brand"><span class="foxk-app-icon">🦊</span><span>FOXK &nbsp;/&nbsp; NBA INTELLIGENCE</span></div><div class="foxk-app-chip">✦ VIP ACCESS</div></div>
 <div class="foxk-app-eyebrow">YOUR COURTSIDE DATA EXPERIENCE</div>
@@ -600,10 +656,10 @@ for start in (0, 3, 6):
     nav_cols = st.columns(3, gap='small')
     for j, section in enumerate(NAV_ITEMS[start:start+3]):
         with nav_cols[j]:
-            st.button(section, key=f'foxk_nav_{start+j}',
+            st.button(['◈  Overview','◎  Prop research','♟  Teammates','↗  Career H2H','⬡  Team defense','✦  Scouting report','⇄  Compare players','♡  Watchlist','♛  VIP access'][start+j], key=f'foxk_nav_{start+j}',
                       type='primary' if st.session_state.foxk_section == section else 'secondary',
                       use_container_width=True, on_click=choose_foxk_section, args=(section,))
-st.divider()
+st.markdown(f'<div class="foxk-current-section"><strong>{st.session_state.foxk_section}</strong><small>FOXK / RESEARCH WORKSPACE</small></div>',unsafe_allow_html=True)
 
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
