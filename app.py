@@ -897,6 +897,58 @@ def foxk_overview_chart(data, stat, threshold):
     st.altair_chart(chart, use_container_width=True, theme=None)
 
 
+# Dark, readable HTML data tables across FOXK's research tabs.
+def foxk_dark_table(data, **kwargs):
+    from html import escape as _esc
+    frame = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+    frame = frame.copy()
+    if frame.empty:
+        st.info("No rows available.")
+        return
+    for col in frame.columns:
+        if pd.api.types.is_datetime64_any_dtype(frame[col]):
+            frame[col] = pd.to_datetime(frame[col], errors="coerce", utc=True).dt.strftime("%b %d, %Y")
+    focus = next((c for c in ["PTS", "REB", "AST", "3PM", "PRA", "STL", "BLK"] if c in frame.columns), None)
+    headers = "".join(f'<th>{_esc(str(c))}</th>' for c in frame.columns)
+    rows = []
+    for record in frame.itertuples(index=False, name=None):
+        cells = []
+        for col, value in zip(frame.columns, record):
+            if pd.isna(value):
+                shown = "—"
+            elif isinstance(value, float):
+                shown = f"{value:,.1f}" if value != int(value) else f"{value:,.0f}"
+            else:
+                shown = str(value)
+            badge = col in ("W/L", "result", "Result") and shown.upper() in ("W", "L")
+            if badge:
+                color = "foxk-win" if shown.upper() == "W" else "foxk-loss"
+                content = f'<span class="{color}">{_esc(shown)}</span>'
+            else:
+                content = _esc(shown)
+            cls = "foxk-log-focus" if col == focus else ""
+            if pd.api.types.is_numeric_dtype(frame[col]):
+                cls += " foxk-log-number"
+            cells.append(f'<td class="{cls.strip()}">{content}</td>')
+        rows.append('<tr>' + ''.join(cells) + '</tr>')
+    st.markdown('''<style>
+    .foxk-global-table-wrap{width:100%;max-height:520px;overflow:auto;border:1px solid #34445d;
+       border-radius:19px;background:#101a2a;box-shadow:0 16px 40px rgba(0,0,0,.22);margin:9px 0 18px}
+    .foxk-global-table{width:100%;border-collapse:separate;border-spacing:0;min-width:650px;
+       color:#e7eefc;font-family:Inter,system-ui,sans-serif;font-size:13px}
+    .foxk-global-table th{position:sticky;top:0;background:#1a2940;color:#afc5e5;
+       font-size:11px;letter-spacing:.055em;text-align:left;padding:15px 14px;
+       border-bottom:1px solid #354a66;z-index:2;white-space:nowrap}
+    .foxk-global-table td{padding:14px;border-bottom:1px solid rgba(125,157,199,.13);white-space:nowrap}
+    .foxk-global-table tr:nth-child(even){background:#142137}
+    .foxk-global-table tbody tr:hover{background:#233854}
+    .foxk-global-table .foxk-log-focus{color:#ffb47c;font-weight:800;background:rgba(255,151,95,.09)}
+    .foxk-global-table .foxk-log-number{text-align:right;font-variant-numeric:tabular-nums}
+    .foxk-global-table .foxk-win{padding:4px 9px;border-radius:8px;background:#193c36;color:#61e6b5;font-weight:800}
+    .foxk-global-table .foxk-loss{padding:4px 9px;border-radius:8px;background:#442635;color:#ff94a2;font-weight:800}
+    </style>''' + '<div class="foxk-global-table-wrap"><table class="foxk-global-table"><thead><tr>' + headers +
+                '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>', unsafe_allow_html=True)
+
 # FOXK unified visuals for every research section.
 def foxk_trend_chart(frame, x_col, series, threshold_name=None):
     """Dark, interactive Altair line chart with honest historical data."""
@@ -1237,7 +1289,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                 quick_rows.append({'Sample':label,'Games':len(sample),'Average':round(float(sample.mean()),2),
                                    'Hits':int(hits),'Decisions':int(decisions),
                                    'Hit rate':f'{hits/decisions:.0%}' if decisions else 'N/A'})
-            if quick_rows: st.dataframe(pd.DataFrame(quick_rows),hide_index=True,use_container_width=True)
+            if quick_rows: foxk_dark_table(pd.DataFrame(quick_rows),hide_index=True,use_container_width=True)
             st.caption('These windows use all available games before applying the matchup filters below. Descriptive results only.')
             f1,f2,f3=st.columns(3)
             with f1:
@@ -1291,7 +1343,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                     trends.append({'Window':label,'Games':len(part),'Average':round(float(part.mean()),1),
                                    'Hits':int(wins.sum()),'Decisions':count,
                                    'Hit rate':f'{int(wins.sum())/count:.0%}' if count else 'N/A'})
-                st.dataframe(pd.DataFrame(trends),hide_index=True,use_container_width=True)
+                foxk_dark_table(pd.DataFrame(trends),hide_index=True,use_container_width=True)
                 st.markdown('#### Game-by-game results vs. threshold')
                 graph=filtered.copy()
                 graph['Threshold']=prop_line
@@ -1315,7 +1367,7 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                         opponent_rows.append({'Opponent':str(code),'Games':len(x),'Average':round(float(x.mean()),1),
                                               'Hits':int(wins.sum()),'Decisions':decision,
                                               'Hit rate':f'{int(wins.sum())/decision:.0%}' if decision else 'N/A'})
-                    st.dataframe(pd.DataFrame(opponent_rows).sort_values(['Games','Opponent'],ascending=[False,True]),hide_index=True,use_container_width=True)
+                    foxk_dark_table(pd.DataFrame(opponent_rows).sort_values(['Games','Opponent'],ascending=[False,True]),hide_index=True,use_container_width=True)
                 else: st.caption('Opponent labels are not available for these game logs.')
                 st.markdown('#### Home / away comparison')
                 if 'homeAway' in filtered and filtered['homeAway'].notna().any():
@@ -1327,14 +1379,14 @@ if st.session_state.foxk_section == NAV_ITEMS[1]:
                         venue_rows.append({'Location':venue,'Games':len(x),'Average':round(float(x.mean()),1),
                                            'Hits':int(wins.sum()),'Decisions':decision,
                                            'Hit rate':f'{int(wins.sum())/decision:.0%}' if decision else 'N/A'})
-                    st.dataframe(pd.DataFrame(venue_rows),hide_index=True,use_container_width=True)
+                    foxk_dark_table(pd.DataFrame(venue_rows),hide_index=True,use_container_width=True)
                 else: st.caption('Home/away labels are not available for these game logs.')
                 st.markdown('#### Auditable game log')
                 cols=[k for k in ['date','opponent','homeAway','weekday','rest_days','MIN','PTS','REB','AST','3PM','STL','BLK',prop_metric] if k in filtered]
                 cols=list(dict.fromkeys(cols))
                 audit=filtered[cols].copy()
                 audit['Outcome']=graph['Outcome'].reindex(audit.index)
-                st.dataframe(audit,use_container_width=True,hide_index=True)
+                foxk_dark_table(audit,use_container_width=True,hide_index=True)
                 st.download_button('Download research (CSV)',audit.to_csv(index=False).encode('utf-8'),
                                    file_name=f'FOXK_{selected["id"]}_{prop_metric}_{season}_prop.csv',mime='text/csv',key='foxk_prop20_csv')
                 st.caption('Small matchup samples can be misleading. Days off are inferred from player appearances, not official team schedules. ESPN endpoints are unofficial.')
@@ -1385,11 +1437,11 @@ if st.session_state.foxk_section == NAV_ITEMS[2]:
                         for metric in metrics:
                             row[metric]=round(float(part[metric].mean()),2) if part[metric].notna().any() else None
                         grouped.append(row)
-                    st.dataframe(pd.DataFrame(grouped),use_container_width=True,hide_index=True)
+                    foxk_dark_table(pd.DataFrame(grouped),use_container_width=True,hide_index=True)
                     st.caption('Interpretation: "No teammate appearance recorded" can include injuries, rest, DNP, roster changes, missing ESPN logs, or data gaps. These are NOT confirmed official injury-out splits. Current-roster membership does not prove both players were teammates for every historical game.')
                     with st.expander('See games used in the comparison'):
                         fields=[c for c in ['date','opponent','homeAway','Teammate recorded','PTS','REB','AST','3PM','MIN'] if c in comparison.columns]
-                        st.dataframe(comparison[fields],use_container_width=True,hide_index=True)
+                        foxk_dark_table(comparison[fields],use_container_width=True,hide_index=True)
     except Exception as e:
         st.warning(f'Teammate comparison is temporarily unavailable: {e}')
 
@@ -1421,9 +1473,9 @@ if st.session_state.foxk_section == NAV_ITEMS[2]:
                     row={'Group':name,'Games':len(part)}
                     row.update({m:round(part[m].mean(),2) if part[m].notna().any() else None for m in metrics})
                     rows.append(row)
-                st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+                foxk_dark_table(pd.DataFrame(rows),hide_index=True,use_container_width=True)
                 with st.expander('Audit games and appearances'):
-                    st.dataframe(base[[x for x in ['date','opponent','All selected teammates recorded playing','PTS','REB','AST','MIN'] if x in base]],hide_index=True,use_container_width=True)
+                    foxk_dark_table(base[[x for x in ['date','opponent','All selected teammates recorded playing','PTS','REB','AST','MIN'] if x in base]],hide_index=True,use_container_width=True)
 
 # Shared team lookup must be available in both Career H2H and Team defense.
 team_codes=['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GS','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NOP','NY','NYK','OKC','ORL','PHI','PHX','POR','SAC','SA','SAS','TOR','UTAH','UTA','WAS','WSH']
@@ -1489,7 +1541,7 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
                     summary=history.groupby('Season',sort=False).agg(Games=('Season','size'),**{m:(m,'mean') for m in hmetrics}).reset_index()
                     for m in hmetrics:summary[m]=summary[m].round(1)
                     st.markdown('**Season-by-season head-to-head averages**')
-                    st.dataframe(summary,use_container_width=True,hide_index=True)
+                    foxk_dark_table(summary,use_container_width=True,hide_index=True)
                     if stat in history and history[stat].notna().any():
                         vals=history[stat].dropna()
                         hits=int((vals>line).sum())
@@ -1497,7 +1549,7 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
                         st.caption('Historical frequency only, not a future-game probability. The comparison line is selected above.')
                 st.markdown('**Every retrieved head-to-head game**')
                 display=[c for c in ['Season','date','opponent','homeAway','result','MIN','PTS','REB','AST','3PM','STL','BLK'] if c in history]
-                st.dataframe(history[display],use_container_width=True,hide_index=True)
+                foxk_dark_table(history[display],use_container_width=True,hide_index=True)
                 st.download_button('Download career H2H game logs (CSV)',history.to_csv(index=False).encode(),file_name=f'FOXK_{selected["id"]}_vs_{h2h_team}_history.csv',mime='text/csv')
                 st.caption('Coverage is limited to seasons selected and successfully returned by ESPN. Includes only game logs ESPN supplies; this is not individual defender tracking.')
 
@@ -1536,7 +1588,7 @@ if st.session_state.foxk_section == NAV_ITEMS[4]:
                 venues.append({'Venue':name,'Games':len(part),'Points allowed / game':round(part['Points allowed'].mean(),1),
                                'Points scored / game':round(part['Points scored'].mean(),1),
                                'Average margin':round(part['Margin'].mean(),1)})
-        if venues:st.dataframe(pd.DataFrame(venues),hide_index=True,use_container_width=True)
+        if venues:foxk_dark_table(pd.DataFrame(venues),hide_index=True,use_container_width=True)
         else:st.caption('ESPN did not return reliable home/away labels for these games.')
         st.markdown('#### Recent form comparison')
         comparisons=[]
@@ -1545,10 +1597,10 @@ if st.session_state.foxk_section == NAV_ITEMS[4]:
             comparisons.append({'Period':label,'Games':len(part),'Points allowed / game':round(part['Points allowed'].mean(),1),
                                 'Points scored / game':round(part['Points scored'].mean(),1),
                                 'Average margin':round(part['Margin'].mean(),1)})
-        st.dataframe(pd.DataFrame(comparisons),hide_index=True,use_container_width=True)
+        foxk_dark_table(pd.DataFrame(comparisons),hide_index=True,use_container_width=True)
         st.markdown('#### Completed game log')
         display=['Date','Opponent','Venue','Result','Points allowed','Points scored','Margin']
-        st.dataframe(sample[display],hide_index=True,use_container_width=True)
+        foxk_dark_table(sample[display],hide_index=True,use_container_width=True)
         st.download_button('Download defensive research (CSV)',defense.to_csv(index=False).encode('utf-8'),
                            file_name=f'FOXK_{def_team}_{season}_defense.csv',mime='text/csv',key='foxk_def_csv')
         st.caption('Limitations: unadjusted scores are affected by pace, opponent strength, overtime and game context. No individual defender matchups, position rankings, or future outcomes are inferred.')
@@ -1586,7 +1638,7 @@ if st.session_state.foxk_section == NAV_ITEMS[5]:
                 'Last 10 avg':round(float(recent10.mean()),2)
             })
         if report_rows:
-            st.dataframe(pd.DataFrame(report_rows),hide_index=True,use_container_width=True)
+            foxk_dark_table(pd.DataFrame(report_rows),hide_index=True,use_container_width=True)
         else:
             st.warning('No numeric statistics are available to summarize.')
         st.markdown('#### Selected prop — historical evidence')
@@ -1623,7 +1675,7 @@ if st.session_state.foxk_section == NAV_ITEMS[5]:
                                      f'{stat} avg':r['average'],
                                      'Over hits':r['over'],'Pushes':r['push']})
             if loc_rows:
-                st.dataframe(pd.DataFrame(loc_rows),hide_index=True,use_container_width=True)
+                foxk_dark_table(pd.DataFrame(loc_rows),hide_index=True,use_container_width=True)
         st.markdown('#### Data-quality checklist')
         st.write('- This report uses game-log averages, not a predictive betting model.')
         st.write('- A teammate missing from a log is not proof of a confirmed injury.')
@@ -1671,7 +1723,7 @@ if st.session_state.foxk_section == NAV_ITEMS[6]:
                                        'Median':round(float(vals.median()),2) if len(vals) else None,
                                        'Over hits':hits,'Over decisions':decisions,
                                        'Over hit rate':f'{hits/decisions:.0%}' if decisions else 'N/A'})
-                    st.dataframe(pd.DataFrame(result),hide_index=True,use_container_width=True)
+                    foxk_dark_table(pd.DataFrame(result),hide_index=True,use_container_width=True)
                 else: st.warning('The players have no shared numeric statistics in this season.')
         except Exception as exc: st.warning(f'Second-player log unavailable: {exc}')
 
@@ -1692,7 +1744,7 @@ if st.session_state.foxk_section == NAV_ITEMS[7]:
         else: st.info('Already saved.')
     if st.session_state.foxk_watchlist:
         saved=pd.DataFrame(st.session_state.foxk_watchlist)
-        st.dataframe(saved,hide_index=True,use_container_width=True)
+        foxk_dark_table(saved,hide_index=True,use_container_width=True)
         st.download_button('Export watchlist CSV',saved.to_csv(index=False).encode('utf-8'),
                            'FOXK_watchlist.csv','text/csv',key='foxk_watch_export')
         if st.button('Clear watchlist',key='foxk_watch_clear'):
