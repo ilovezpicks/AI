@@ -1,0 +1,15 @@
+
+import streamlit as st
+from foxk_odds import get_nba_prop_odds
+
+st.title("FOXK Odds Connection Test")
+
+if st.button("Test PropLine API"):
+    try:
+        data = get_nba_prop_odds()
+        st.success("API request succeeded!")
+        st.write("Response type:", type(data).__name__)
+        st.json(data, expanded=False)
+    except Exception as error:
+        st.error(f"API test failed: {type(error).__name__}")
+        st.code(str(error).split("?")[0])
