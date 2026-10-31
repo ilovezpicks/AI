@@ -571,6 +571,21 @@ FOXK_TIMEZONES = {
 }
 
 st.markdown("""<style>
+
+/* FOXK compact NBA schedule grid: 3 columns desktop, 2 tablet, 1 phone. */
+.foxk-schedule-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0 16px}
+.foxk-schedule-grid .foxk-game-card{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;min-width:0;
+ padding:12px 14px;margin:0;border-radius:14px;box-shadow:none;background:linear-gradient(135deg,#1b2b45,#111d31)}
+.foxk-schedule-grid .foxk-game-name{font-size:18px;line-height:1.1}
+.foxk-schedule-grid .foxk-game-tag{font-size:9px;margin-bottom:3px}
+.foxk-schedule-grid .foxk-game-middle{min-width:95px}
+.foxk-schedule-grid .foxk-game-time{font-size:13px}
+.foxk-schedule-grid .foxk-game-date{font-size:10px;margin-top:2px}
+.foxk-schedule-grid .foxk-game-status{font-size:9px;padding:3px 6px;margin-top:5px}
+.foxk-schedule-grid .foxk-game-score{font-size:13px;margin-top:3px}
+@media(max-width:1100px){.foxk-schedule-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.foxk-schedule-grid{grid-template-columns:1fr}}
+
 /* FOXK Game Day — full-width premium matchup cards */
 .foxk-schedule-intro{font-size:12px;font-weight:800;letter-spacing:.13em;color:#ffad77;margin:7px 0 15px}
 .foxk-game-card{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;
@@ -591,16 +606,78 @@ st.markdown("""<style>
  .foxk-game-time{font-size:13px}.foxk-game-date{font-size:10px}}
 </style>""", unsafe_allow_html=True)
 
+# FOXK compact schedule controls: native date input and calendar popup.
+st.markdown("""<style>
+/* Calendar field and all its internal layers: remove the white surface. */
+[data-testid="stDateInput"],
+[data-testid="stDateInput"] [data-baseweb="input"],
+[data-testid="stDateInput"] [data-baseweb="input"] > div,
+[data-testid="stDateInput"] [data-baseweb="input"] > div > div,
+[data-testid="stDateInput"] input,
+[data-testid="stDateInput"] button {
+ background:#142239!important;background-color:#142239!important;
+ color:#F8FAFC!important;-webkit-text-fill-color:#F8FAFC!important;
+}
+[data-testid="stDateInput"] [data-baseweb="input"] {
+ border:1px solid #3E5679!important;border-radius:14px!important;
+ overflow:hidden!important;min-height:45px!important;
+}
+[data-testid="stDateInput"] input {min-height:43px!important;height:43px!important;}
+[data-testid="stDateInput"] svg {color:#FFAA75!important;fill:none!important;}
+[data-testid="stDateInput"] [data-baseweb="input"]:focus-within {
+ border-color:#FF995D!important;box-shadow:0 0 0 2px rgba(255,153,93,.13)!important;
+}
+/* The date-picker overlay lives outside the input component. */
+[data-baseweb="calendar"],
+[data-baseweb="calendar"] > div,
+[data-baseweb="calendar"] button,
+[data-baseweb="calendar"] select,
+[data-baseweb="calendar"] [role="grid"],
+[data-baseweb="calendar"] [role="gridcell"] {
+ background-color:#142239!important;color:#F8FAFC!important;
+}
+[data-baseweb="calendar"] [aria-selected="true"] {
+ background:#FF995D!important;color:#0A1020!important;
+}
+[data-baseweb="calendar"] [aria-disabled="true"] {opacity:.4!important;}
+[data-baseweb="calendar"] button:hover {background:#293F60!important;}
+</style>""",unsafe_allow_html=True)
+
 with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False):
     st.markdown('<div class="foxk-schedule-intro">FOXK GAME DAY · NBA MATCHUPS</div>', unsafe_allow_html=True)
-    sched_left, sched_right = st.columns([1, 1])
+    sched_left, sched_right, sched_spacer = st.columns([1.1, 1.35, 2.5])
     with sched_right:
         foxk_tz_label = st.selectbox('Display timezone', list(FOXK_TIMEZONES),
                                      key='foxk_schedule_timezone')
     foxk_tz = ZoneInfo(FOXK_TIMEZONES[foxk_tz_label])
+    # Native date_input stayed white under some Streamlit versions.
+    # Use the same dark selectbox component as FOXK's other working dropdowns.
+    today_local = dt.datetime.now(foxk_tz).date()
+    schedule_days = [today_local + dt.timedelta(days=offset) for offset in range(-365, 366)]
+    if st.session_state.get('foxk_schedule_day_choice') not in schedule_days:
+        st.session_state['foxk_schedule_day_choice'] = today_local
+
+    def foxk_shift_schedule_day(amount):
+        next_day = st.session_state['foxk_schedule_day_choice'] + dt.timedelta(days=amount)
+        if next_day in schedule_days:
+            st.session_state['foxk_schedule_day_choice'] = next_day
+
     with sched_left:
-        game_day = st.date_input('Schedule date', value=dt.datetime.now(foxk_tz).date(),
-                                 key='foxk_schedule_day')
+        game_day = st.selectbox(
+            'Schedule date',
+            options=schedule_days,
+            format_func=lambda day: day.strftime('%a, %b %d, %Y'),
+            key='foxk_schedule_day_choice',
+        )
+        prev_col, next_col = st.columns(2)
+        with prev_col:
+            st.button('← Previous', key='foxk_schedule_prev',
+                      on_click=foxk_shift_schedule_day, args=(-1,),
+                      use_container_width=True)
+        with next_col:
+            st.button('Next →', key='foxk_schedule_next',
+                      on_click=foxk_shift_schedule_day, args=(1,),
+                      use_container_width=True)
     st.caption(f"All tipoff times shown in {foxk_tz_label} time; daylight saving changes are handled automatically.")
     try:
         scoreboard = foxk_today_scoreboard(game_day.strftime('%Y%m%d'))
@@ -636,6 +713,7 @@ with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False
         if schedule:
             schedule.sort(key=lambda game: game['sort_time'])
             st.caption(f"{len(schedule)} NBA games returned for {game_day.strftime('%B %d, %Y')}")
+            schedule_cards = []
             for game in schedule:
                 away = foxk_html_escape(str(game['away']))
                 home = foxk_html_escape(str(game['home']))
@@ -645,13 +723,14 @@ with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False
                 score_text = foxk_html_escape(game['score'])
                 status_class = 'final' if game['completed'] else ''
                 score_markup = f'<div class="foxk-game-score">{score_text}</div>' if score_text else ''
-                st.markdown(f"""<div class="foxk-game-card">
+                schedule_cards.append(f"""<div class="foxk-game-card">
                   <div class="foxk-game-team"><div class="foxk-game-tag">AWAY</div><div class="foxk-game-name">{away}</div></div>
                   <div class="foxk-game-middle"><div class="foxk-game-time">{time_text}</div>
                     <div class="foxk-game-date">{date_text}</div>
                     <span class="foxk-game-status {status_class}">{status_text}</span>{score_markup}</div>
                   <div class="foxk-game-team right"><div class="foxk-game-tag">HOME</div><div class="foxk-game-name">{home}</div></div>
-                </div>""", unsafe_allow_html=True)
+                </div>""")
+            st.markdown('<div class="foxk-schedule-grid">' + ''.join(schedule_cards) + '</div>', unsafe_allow_html=True)
         else:
             st.info('No NBA games returned for this date.')
         st.caption('Source: ESPN schedule feed. Times are converted from the source timestamp; verify schedule changes before game time.')
