@@ -680,6 +680,55 @@ st.markdown("""<style>
 @media(max-width:700px){.foxk-chart-legend{gap:10px}.foxk-log-title h3{font-size:1.35rem!important}}
 </style>""",unsafe_allow_html=True)
 
+st.markdown("""<style>
+/* FOXK CONTROL DECK: native Streamlit inputs, premium dark finish */
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] > div,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] > div > div {
+  background:#141d30!important;background-color:#141d30!important;
+  border-color:#384762!important;color:#f6f7ff!important;
+  border-radius:16px!important;min-height:54px!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] > div {
+  border:1px solid #384762!important;
+  box-shadow:0 8px 24px rgba(0,0,0,.18),inset 0 1px rgba(255,255,255,.04)!important;
+  overflow:hidden!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] *,
+[data-testid="stMain"] [data-testid="stNumberInput"] input {
+  color:#f6f7ff!important;-webkit-text-fill-color:#f6f7ff!important;
+  background-color:transparent!important;font-weight:700!important;
+}
+[data-testid="stMain"] [data-testid="stNumberInput"] input {padding-left:16px!important;font-size:17px!important;}
+[data-testid="stMain"] [data-testid="stNumberInput"] button {
+  background:#24314a!important;background-color:#24314a!important;
+  color:#ffab7e!important;border:0!important;border-left:1px solid #40516b!important;
+  min-width:42px!important;
+}
+[data-testid="stMain"] [data-testid="stNumberInput"] button:hover{background:#36435d!important}
+[data-testid="stMain"] [data-testid="stNumberInput"] button svg,
+[data-testid="stMain"] [data-testid="stSelectbox"] svg {color:#ffad7f!important;fill:#ffad7f!important}
+[data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+  color:#c4cee1!important;font-size:12px!important;letter-spacing:.055em!important;
+  text-transform:uppercase!important;font-weight:800!important;
+}
+[data-testid="stMain"] [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+[data-testid="stMain"] [data-testid="stNumberInput"] [data-baseweb="input"] > div:focus-within {
+  border-color:#ff995e!important;box-shadow:0 0 0 3px rgba(255,153,94,.16)!important;
+}
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="popover"] [role="option"]{background:#182238!important;color:#f7f8ff!important}
+[data-baseweb="popover"] [role="option"]:hover{background:#30405d!important}
+.foxk-controls-title{margin:10px 0 14px;padding:14px 18px;border:1px solid #34445f;
+ border-radius:17px;background:linear-gradient(110deg,#1b2840,#111a2b);display:flex;
+ justify-content:space-between;align-items:center;gap:12px}
+.foxk-controls-title strong{font-size:15px;color:#fff;letter-spacing:-.01em}
+.foxk-controls-title span{color:#ffa56d;font-size:10px;letter-spacing:.13em;font-weight:850}
+@media(max-width:640px){.foxk-controls-title{padding:12px 14px}}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -693,8 +742,12 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
     if df.empty:
         st.info('No games match these overview filters.')
         st.stop()
-    stat=st.selectbox('Overview metric',valid,key='foxk_overview_stat')
-    line=st.number_input('Overview comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_overview_line')
+    st.markdown('<div class="foxk-controls-title"><strong>🎯 Prop Control Center</strong><span>BUILD YOUR LINE</span></div>',unsafe_allow_html=True)
+    metric_col, line_col = st.columns([1.15, 1], gap='medium')
+    with metric_col:
+        stat=st.selectbox('Overview metric',valid,key='foxk_overview_stat')
+    with line_col:
+        line=st.number_input('Overview comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_overview_line')
     st.caption(f'{len(df)} recorded games match your filters. Sample size is shown explicitly; missing values are excluded.')
     cols=st.columns(min(4,len(valid)))
     for i,key in enumerate(valid[:4]):cols[i].metric(key,f'{df[key].mean():.1f}')
