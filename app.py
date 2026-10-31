@@ -1126,6 +1126,48 @@ st.markdown("""<style>
 }
 </style>""", unsafe_allow_html=True)
 
+# FOXK universal selector theme: buttons, button groups, pills and segmented widgets.
+st.markdown("""<style>
+.foxk-sample-label {color:#c1d0e8;font-size:12px;font-weight:800;letter-spacing:.08em;margin:12px 0 6px;}
+/* Target the current Streamlit ButtonGroup used by pills and segmented controls. */
+[data-testid="stButtonGroup"], [data-testid="stButtonGroup"] > div,
+[data-testid="stButtonGroup"] [role="group"],
+[data-testid="stPills"], [data-testid="stPills"] > div,
+[data-testid="stSegmentedControl"], [data-testid="stSegmentedControl"] > div {
+ background:#111d31!important;background-color:#111d31!important;
+ border-color:#344966!important;color:#f8fafc!important;
+}
+[data-testid="stButtonGroup"] button,
+[data-testid="stPills"] button,
+[data-testid="stSegmentedControl"] button {
+ background:#1b2a43!important;background-color:#1b2a43!important;
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+ border:1px solid #3d5273!important;border-radius:12px!important;
+}
+[data-testid="stButtonGroup"] button[aria-pressed="true"],
+[data-testid="stButtonGroup"] button[aria-checked="true"],
+[data-testid="stPills"] button[aria-pressed="true"],
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+ background:#ff995d!important;background-color:#ff995d!important;
+ color:#141b29!important;-webkit-text-fill-color:#141b29!important;
+ border-color:#ff995d!important;
+}
+/* Native sample buttons and any other app buttons: selected=orange, idle=navy. */
+[data-testid="stMain"] .stButton > button[kind="secondary"] {
+ background:#1b2a43!important;background-color:#1b2a43!important;
+ color:#f8fafc!important;-webkit-text-fill-color:#f8fafc!important;
+ border:1px solid #3d5273!important;border-radius:12px!important;
+}
+[data-testid="stMain"] .stButton > button[kind="primary"] {
+ background:#ff995d!important;background-color:#ff995d!important;
+ color:#141b29!important;-webkit-text-fill-color:#141b29!important;
+ border:1px solid #ff995d!important;border-radius:12px!important;
+}
+[data-testid="stMain"] .stButton > button[kind="primary"] * {
+ color:#141b29!important;-webkit-text-fill-color:#141b29!important;
+}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -1634,7 +1676,20 @@ if st.session_state.foxk_section == NAV_ITEMS[4]:
         st.info('No completed games with valid scores were returned for this team and season. No defensive numbers are estimated.')
     else:
         st.caption(f'{def_team} · {season-1}–{str(season)[-2:]} season · {len(defense)} completed games returned')
-        period=st.segmented_control('Research sample',['Last 5','Last 10','Last 20','All games'],default='Last 10',key='foxk_def_period')
+        # Render FOXK sample selection with native buttons rather than Streamlit's white segmented widget.
+        # The selected choice persists across reruns and uses the app-wide button theme.
+        st.markdown('<div class="foxk-sample-label">RESEARCH SAMPLE</div>', unsafe_allow_html=True)
+        choices=['Last 5','Last 10','Last 20','All games']
+        if st.session_state.get('foxk_def_period') not in choices:
+            st.session_state['foxk_def_period']='Last 10'
+        sample_cols=st.columns(4, gap='small')
+        for sample_col, sample_choice in zip(sample_cols, choices):
+            with sample_col:
+                if st.button(sample_choice, key='foxk_sample_'+sample_choice.lower().replace(' ','_'),
+                             type='primary' if st.session_state['foxk_def_period']==sample_choice else 'secondary',
+                             use_container_width=True):
+                    st.session_state['foxk_def_period']=sample_choice
+        period=st.session_state['foxk_def_period']
         count={'Last 5':5,'Last 10':10,'Last 20':20,'All games':len(defense)}[period]
         sample=defense.head(count).copy()
         st.caption(f'Sample includes {len(sample)} completed games; smaller-than-requested samples are shown as-is.')
