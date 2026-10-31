@@ -560,28 +560,103 @@ with st.expander('Data source & methodology'):
 def foxk_today_scoreboard(day):
     return fetch(BASE+'/scoreboard', {'dates':day, 'limit':100})
 
+from zoneinfo import ZoneInfo
+from html import escape as foxk_html_escape
+
+FOXK_TIMEZONES = {
+    "Eastern (Indiana)": "America/Indiana/Indianapolis",
+    "Central": "America/Chicago",
+    "Mountain": "America/Denver",
+    "Pacific": "America/Los_Angeles",
+}
+
+st.markdown("""<style>
+/* FOXK Game Day — full-width premium matchup cards */
+.foxk-schedule-intro{font-size:12px;font-weight:800;letter-spacing:.13em;color:#ffad77;margin:7px 0 15px}
+.foxk-game-card{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;
+ background:linear-gradient(135deg,#1c2b46 0%,#101a2d 100%);border:1px solid #3b506f;border-radius:20px;
+ padding:20px 22px;margin:12px 0;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+.foxk-game-team{min-width:0}.foxk-game-team.right{text-align:right}
+.foxk-game-tag{font-size:10px;color:#9eafca;font-weight:800;letter-spacing:.14em;margin-bottom:5px}
+.foxk-game-name{font-size:23px;font-weight:850;color:#f7f9ff;letter-spacing:-.04em;overflow-wrap:anywhere}
+.foxk-game-middle{text-align:center;min-width:138px}
+.foxk-game-time{font-size:17px;font-weight:850;color:#ffb17d;white-space:nowrap}
+.foxk-game-date{font-size:11px;color:#a6b7d2;margin-top:3px}
+.foxk-game-status{display:inline-block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+ border:1px solid #435775;background:#243751;color:#d8e5f8;padding:5px 10px;border-radius:999px;margin-top:8px}
+.foxk-game-status.final{background:#123d37;border-color:#287765;color:#7ef0cd}
+.foxk-game-score{font-size:18px;color:#f8faff;font-weight:800;margin-top:5px}
+@media(max-width:650px){.foxk-game-card{gap:8px;padding:14px 10px;border-radius:15px}
+ .foxk-game-name{font-size:17px}.foxk-game-middle{min-width:110px}
+ .foxk-game-time{font-size:13px}.foxk-game-date{font-size:10px}}
+</style>""", unsafe_allow_html=True)
+
 with st.expander("🏀 Today's NBA games — live ESPN schedule", expanded=False):
-    game_day=st.date_input('Schedule date',value=dt.date.today(),key='foxk_schedule_day')
+    st.markdown('<div class="foxk-schedule-intro">FOXK GAME DAY · NBA MATCHUPS</div>', unsafe_allow_html=True)
+    sched_left, sched_right = st.columns([1, 1])
+    with sched_right:
+        foxk_tz_label = st.selectbox('Display timezone', list(FOXK_TIMEZONES),
+                                     key='foxk_schedule_timezone')
+    foxk_tz = ZoneInfo(FOXK_TIMEZONES[foxk_tz_label])
+    with sched_left:
+        game_day = st.date_input('Schedule date', value=dt.datetime.now(foxk_tz).date(),
+                                 key='foxk_schedule_day')
+    st.caption(f"All tipoff times shown in {foxk_tz_label} time; daylight saving changes are handled automatically.")
     try:
-        scoreboard=foxk_today_scoreboard(game_day.strftime('%Y%m%d'))
-        schedule=[]
-        for event in scoreboard.get('events',[]):
-            comp=(event.get('competitions') or [{}])[0]
-            teams=comp.get('competitors',[])
-            home=next((x for x in teams if x.get('homeAway')=='home'),{})
-            away=next((x for x in teams if x.get('homeAway')=='away'),{})
-            if not home or not away: continue
-            schedule.append({
-                'Away':away.get('team',{}).get('abbreviation','?'),
-                'Home':home.get('team',{}).get('abbreviation','?'),
-                'Tipoff (UTC)':event.get('date',''),
-                'Status':event.get('status',{}).get('type',{}).get('description',''),
-                'Score':(str(away.get('score',''))+' – '+str(home.get('score',''))).strip(' –') if event.get('status',{}).get('type',{}).get('completed') else '—'
-            })
-        if schedule: st.dataframe(pd.DataFrame(schedule),hide_index=True,use_container_width=True)
-        else: st.info('No NBA games returned for this date.')
-        st.caption('Schedule and scores come from ESPN. Confirmed starters and injury reports are not provided by this schedule feed.')
-    except Exception as exc: st.warning(f'Schedule feed unavailable: {exc}')
+        scoreboard = foxk_today_scoreboard(game_day.strftime('%Y%m%d'))
+        schedule = []
+        for event in scoreboard.get('events', []):
+            comp = (event.get('competitions') or [{}])[0]
+            teams = comp.get('competitors', [])
+            home = next((x for x in teams if x.get('homeAway') == 'home'), {})
+            away = next((x for x in teams if x.get('homeAway') == 'away'), {})
+            if not home or not away:
+                continue
+            raw_time = event.get('date', '')
+            try:
+                parsed = dt.datetime.fromisoformat(raw_time.replace('Z', '+00:00'))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=dt.timezone.utc)
+                local = parsed.astimezone(foxk_tz)
+                tipoff = local.strftime('%-I:%M %p %Z')
+                local_day = local.strftime('%a, %b %-d')
+                sort_time = parsed
+            except (ValueError, TypeError):
+                tipoff, local_day, sort_time = 'Time TBA', '', dt.datetime.max.replace(tzinfo=dt.timezone.utc)
+            status = event.get('status', {}).get('type', {})
+            completed = bool(status.get('completed'))
+            away_score = away.get('score', '')
+            home_score = home.get('score', '')
+            score = f'{away_score} – {home_score}' if completed and away_score != '' and home_score != '' else ''
+            schedule.append({'away': away.get('team', {}).get('abbreviation', '?'),
+                             'home': home.get('team', {}).get('abbreviation', '?'),
+                             'tipoff': tipoff, 'local_day': local_day,
+                             'status': status.get('description', 'Scheduled'),
+                             'completed': completed, 'score': score, 'sort_time': sort_time})
+        if schedule:
+            schedule.sort(key=lambda game: game['sort_time'])
+            st.caption(f"{len(schedule)} NBA games returned for {game_day.strftime('%B %d, %Y')}")
+            for game in schedule:
+                away = foxk_html_escape(str(game['away']))
+                home = foxk_html_escape(str(game['home']))
+                time_text = foxk_html_escape(game['tipoff'])
+                date_text = foxk_html_escape(game['local_day'])
+                status_text = foxk_html_escape(str(game['status']))
+                score_text = foxk_html_escape(game['score'])
+                status_class = 'final' if game['completed'] else ''
+                score_markup = f'<div class="foxk-game-score">{score_text}</div>' if score_text else ''
+                st.markdown(f"""<div class="foxk-game-card">
+                  <div class="foxk-game-team"><div class="foxk-game-tag">AWAY</div><div class="foxk-game-name">{away}</div></div>
+                  <div class="foxk-game-middle"><div class="foxk-game-time">{time_text}</div>
+                    <div class="foxk-game-date">{date_text}</div>
+                    <span class="foxk-game-status {status_class}">{status_text}</span>{score_markup}</div>
+                  <div class="foxk-game-team right"><div class="foxk-game-tag">HOME</div><div class="foxk-game-name">{home}</div></div>
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.info('No NBA games returned for this date.')
+        st.caption('Source: ESPN schedule feed. Times are converted from the source timestamp; verify schedule changes before game time.')
+    except Exception as exc:
+        st.warning(f'Schedule feed unavailable: {exc}')
 
 # Global player and season selection; research filters belong to their own sections.
 top_left,top_right=st.columns([3,1])
