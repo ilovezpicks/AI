@@ -406,8 +406,44 @@ st.markdown('''<style>
 [data-testid="stMain"] .block-container {padding-top:0.35rem!important;}
 [data-testid="stMain"] h1 {margin-top:0!important;}
 </style>''', unsafe_allow_html=True)
-st.title('FOXK  /  NBA STAT LAB')
-st.caption('PLAYER RESEARCH  /  NBA DATA  /  ESPN GAME LOGS')
+# Visual-only FOXK 2026 refresh. No authentication, API, or calculation changes.
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+:root{--foxk-bg:#090e17;--foxk-surface:#111a29;--foxk-edge:#263348;--foxk-orange:#ff965a;--foxk-text:#f5f8ff;--foxk-muted:#9eacc0}
+.stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:radial-gradient(ellipse at 88% 0%,#18263b 0%,transparent 42%),linear-gradient(160deg,#0c1320 0%,#090e17 78%)!important;color:var(--foxk-text)!important}
+html,body,p,li,label,span,button,input{font-family:'DM Sans',Arial,sans-serif!important}
+h1,h2,h3,h4{font-family:'Space Grotesk','DM Sans',sans-serif!important;letter-spacing:-.025em!important;color:var(--foxk-text)!important}
+[data-testid="stHeader"]{background:rgba(9,14,23,.88)!important;border-bottom:1px solid #263348!important;backdrop-filter:blur(14px)}
+[data-testid="stMain"] .block-container{max-width:1440px!important;padding:1.2rem 2rem 5rem!important}
+[data-testid="stSidebar"]{background:#0e1624!important;border-right:1px solid var(--foxk-edge)!important}
+[data-testid="stMetric"]{background:linear-gradient(155deg,#172337,#111a29)!important;border:1px solid #2d3c52!important;border-radius:16px!important;padding:21px 22px!important;box-shadow:0 12px 32px rgba(0,0,0,.14)!important}
+[data-testid="stMetricValue"] *,[data-testid="stMetricValue"]{font-family:'Space Grotesk',sans-serif!important;font-size:clamp(1.5rem,2.3vw,2.15rem)!important;color:#fff!important}
+[data-testid="stMetricLabel"] *,[data-testid="stMetricLabel"]{color:#aabbd0!important;font-size:.8rem!important;letter-spacing:.025em!important}
+[data-testid="stCaptionContainer"] p,[data-testid="stCaptionContainer"]{color:#aabbd0!important}
+[data-testid="stExpander"]{background:rgba(17,26,41,.82)!important;border:1px solid #2b3a50!important;border-radius:14px!important;overflow:hidden!important}
+[data-testid="stDataFrame"],[data-testid="stTable"]{border:1px solid #2b3a50!important;border-radius:14px!important;overflow:hidden!important}
+[data-testid="stAlert"]{border-radius:12px!important}
+[data-baseweb="select"]>div,[data-baseweb="input"]>div,[data-testid="stDateInput"] input{background:#172236!important;border:1px solid #35465f!important;border-radius:11px!important;min-height:44px!important}
+[data-baseweb="select"]>div:focus-within,[data-baseweb="input"]>div:focus-within{border-color:var(--foxk-orange)!important;box-shadow:0 0 0 2px rgba(255,150,90,.12)!important}
+.stButton button,[data-testid="stDownloadButton"] button{min-height:43px!important;border-radius:11px!important;font-weight:700!important;transition:transform .15s ease,background .15s ease,border-color .15s ease!important}
+.stButton button:hover,[data-testid="stDownloadButton"] button:hover{transform:translateY(-1px)}
+.stButton button[kind="primary"],div[class*="st-key-foxk_nav_"] button[kind="primary"]{background:linear-gradient(120deg,#ffae6d,#f27c48)!important;border:1px solid #ffad75!important;color:#1a1720!important;box-shadow:0 5px 20px rgba(242,124,72,.16)!important}
+.stButton button[kind="primary"] *,div[class*="st-key-foxk_nav_"] button[kind="primary"] *{color:#1a1720!important}
+div[class*="st-key-foxk_nav_"] button[kind="secondary"]{background:#152035!important;border:1px solid #2d3d55!important;color:#d5e0ef!important}
+div[class*="st-key-foxk_nav_"] button[kind="secondary"] *{color:#d5e0ef!important}
+div[class*="st-key-foxk_nav_"] button{min-height:49px!important;border-radius:12px!important}
+hr{border-color:#263348!important;margin:1.1rem 0!important}
+a{color:#ffb583!important}
+.foxk-hero{position:relative;overflow:hidden;padding:27px 31px 25px;margin:0 0 18px;background:linear-gradient(115deg,#18253a 0%,#121e31 60%,#1f2739 100%);border:1px solid #36465e;border-radius:21px;box-shadow:0 20px 55px rgba(0,0,0,.18)}
+.foxk-hero:after{content:'◉';position:absolute;right:26px;top:-65px;font-size:245px;color:rgba(255,150,90,.075);pointer-events:none}
+.foxk-eyebrow{font-size:11px;font-weight:800;letter-spacing:.2em;color:#ffae7b;margin-bottom:9px}
+.foxk-hero h1{font-size:clamp(1.75rem,3.3vw,3.1rem)!important;line-height:1.1!important;margin:0 0 9px!important;font-weight:700!important}
+.foxk-hero h1 span{color:#ff9d65}
+.foxk-hero p{color:#b4c4d9;font-size:.91rem;margin:0!important}
+.foxk-tag{display:inline-block;margin-top:17px;padding:6px 11px;background:rgba(255,150,90,.11);border:1px solid rgba(255,150,90,.3);border-radius:999px;color:#ffbb91;font-size:.72rem;font-weight:800;letter-spacing:.06em}
+@media(max-width:768px){[data-testid="stMain"] .block-container{padding:1rem .75rem 3rem!important}.foxk-hero{padding:20px 18px;border-radius:15px}.foxk-hero:after{display:none}div[class*="st-key-foxk_nav_"] button{font-size:12px!important;min-height:43px!important}}
+</style>""",unsafe_allow_html=True)
+st.markdown("""<div class="foxk-hero"><div class="foxk-eyebrow">FOXK INTELLIGENCE / NBA RESEARCH</div><h1>FOXK <span>STAT LAB</span></h1><p>Player trends · matchup intelligence · sportsbook prop research</p><div class="foxk-tag">● VIP RESEARCH DASHBOARD</div></div>""",unsafe_allow_html=True)
 with st.expander('Data source & methodology'):
     st.caption('ESPN public basketball endpoints (unofficial). Statistics appear only when the provider returns usable game logs. No fabricated data or guessed matchups.')
 @st.cache_data(ttl=600,show_spinner=False)
