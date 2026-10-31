@@ -1,119 +1,96 @@
-        else:
-            st.warning('No numeric statistics are available to summarize.')
-        st.markdown('#### Selected prop — historical evidence')
-        if stat in source:
-            for label,part in [('Last 5',source.head(5)),('Last 10',source.head(10)),('Season',source)]:
-                r=describe_rates(part,stat,line)
-                if r:
-                    st.write(f"**{label}:** {r['over']}/{r['games']} over {line:g} {stat} "
-                             f"({r['over']/r['games']:.1%}); {r['push']} pushes; "
-                             f"average {r['average']:.1f}.")
-        else:
-            st.info(f'No reliable {stat} values are available.')
-        st.markdown('#### Opponent and location')
-        if opponent.strip():
-            if 'opponent' in source:
-                matchup=source[source['opponent'].astype(str).str.upper()==opponent.strip().upper()]
-                st.write(f"**Against {opponent.strip().upper()} this season:** {len(matchup)} recorded games.")
-                r=describe_rates(matchup,stat,line)
-                if r:
-                    st.write(f"**{stat}:** {r['average']:.1f} average; {r['over']}/{r['games']} above {line:g}.")
-                else:
-                    st.info('Insufficient opponent-specific data for the selected stat.')
-            else:
-                st.info('Opponent codes are unavailable in these game logs.')
-        else:
-            st.caption('Select an opponent above to add a same-season matchup comparison.')
-        if 'homeAway' in source and stat in source:
-            loc_rows=[]
-            for loc in ['home','away']:
-                part=source[source['homeAway'].astype(str).str.lower()==loc]
-                r=describe_rates(part,stat,line)
-                if r:
-                    loc_rows.append({'Location':loc.title(),'Games':r['games'],
-                                     f'{stat} avg':r['average'],
-                                     'Over hits':r['over'],'Pushes':r['push']})
-            if loc_rows:
-                st.dataframe(pd.DataFrame(loc_rows),hide_index=True,use_container_width=True)
-        st.markdown('#### Data-quality checklist')
-        st.write('- This report uses game-log averages, not a predictive betting model.')
-        st.write('- A teammate missing from a log is not proof of a confirmed injury.')
-        st.write('- Team points allowed cannot identify which defender guarded a player.')
-        st.write('- Very small opponent and venue samples are especially unstable.')
-        st.write('- ESPN endpoints are unofficial and may omit games or change format.')
-        st.caption('Source: ESPN public NBA game-log endpoints. Verify the game log and current availability before using these trends.')
+import streamlit as st
+import requests, pandas as pd, datetime as dt, time
 
+st.set_page_config(page_title='FOXK NBA Stat Lab',page_icon='🏀',layout='wide')
+# FOXK Whop VIP gate — runs before any research data is fetched.
+import base64, hashlib, secrets, threading, urllib.parse
 
+FOXK_JOIN = "https://whop.com/discord-gg-50b0/foxk-vip-picks/"
+FOXK_DISCORD = "https://discord.gg/fX3BpQ5T6"
+FOXK_OAUTH = "https://api.whop.com/oauth"
 
-if st.session_state.foxk_section == NAV_ITEMS[6]:
-    st.subheader('Compare two NBA players')
-    st.caption('Side-by-side recorded game-log averages and threshold hit rates. The first player is your search selection.')
-    others=[p for p in all_players if p['id']!=selected['id']]
-    compare_query=st.text_input('Find second player',key='foxk_compare_search',placeholder='Enter second player name')
-    choices=[p for p in others if compare_query.strip().casefold() in p['name'].casefold()] if compare_query.strip() else []
-    if not compare_query.strip():
-        st.info('Type the second player’s name to compare.')
-    elif len(choices)>25:
-        st.info('Keep typing to narrow the player search.')
-    elif not choices:
-        st.info('No matching player in current ESPN team rosters.')
-    else:
-        other=st.selectbox('Second player',[p['id'] for p in choices],
-                           format_func=lambda pid:next(p['name']+' · '+p['team'] for p in choices if p['id']==pid),
-                           key='foxk_compare_pid')
-        p2=next(p for p in choices if p['id']==other)
+# OAuth state carries a signed, short-lived PKCE verifier across the browser redirect.
+# The signature prevents tampering without relying on process-local memory.
+import hmac, json, logging, re
+FOXK_LOG = logging.getLogger("foxk.auth")
+
+def foxk_state_create(cfg, verifier):
+    payload = {"v": verifier, "t": int(time.time()), "r": foxk_b64(secrets.token_bytes(16))}
+    encoded = foxk_b64(json.dumps(payload, separators=(",", ":")).encode())
+    signature = foxk_b64(hmac.new(cfg["client_secret"].encode(), encoded.encode(), hashlib.sha256).digest())
+    return encoded + "." + signature
+
+def foxk_state_verify(cfg, state):
+    if not isinstance(state, str) or len(state) > 1500 or "." not in state:
+        raise ValueError("Missing or malformed OAuth state")
+    encoded, signature = state.split(".", 1)
+    expected = foxk_b64(hmac.new(cfg["client_secret"].encode(), encoded.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("OAuth state signature mismatch")
+    payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+    age = time.time() - int(payload["t"])
+    if age < 0 or age > 600 or not isinstance(payload.get("v"), str):
+        raise ValueError("OAuth state expired")
+    return payload["v"]
+
+def foxk_b64(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+def foxk_config():
+    try:
+        cfg = st.secrets["whop"]
+        return {k: str(cfg[k]).strip() for k in ("client_id", "client_secret", "product_id", "redirect_uri")}, str(cfg.get("api_key", "")).strip(), str(cfg.get("company_id", "biz_jiBiHn3QVytpcB")).strip()
+    except (KeyError, FileNotFoundError):
+        return None, "", ""
+
+def foxk_login_url(cfg):
+    verifier = foxk_b64(secrets.token_bytes(48))
+    challenge = foxk_b64(hashlib.sha256(verifier.encode()).digest())
+    state = foxk_state_create(cfg, verifier)
+    params = {
+        "response_type": "code", "client_id": cfg["client_id"],
+        "redirect_uri": cfg["redirect_uri"], "scope": "openid profile email",
+        "state": state, "nonce": foxk_b64(secrets.token_bytes(24)),
+        "code_challenge": challenge, "code_challenge_method": "S256",
+    }
+    return FOXK_OAUTH + "/authorize?" + urllib.parse.urlencode(params)
+
+def foxk_token_exchange(cfg, code, verifier):
+    # Keep all secrets and authorization codes server-side.
+    # Whop documents a JSON body with PKCE and no secret, but an app configured as a
+    # confidential client may require its secret. Try the documented form first and
+    # only fall back when Whop answers 401 invalid_client (client auth is checked
+    # before the code is redeemed, so the code is still usable for the next try).
+    import re
+    base = {"grant_type": "authorization_code", "code": code,
+            "redirect_uri": cfg["redirect_uri"], "client_id": cfg["client_id"],
+            "code_verifier": verifier}
+    attempts = [
+        ("json-pkce", {"json": dict(base)}),
+        ("json-secret", {"json": dict(base, client_secret=cfg["client_secret"])}),
+        ("basic-auth", {"data": {k: v for k, v in base.items() if k != "client_id"},
+                        "auth": (cfg["client_id"], cfg["client_secret"])}),
+    ]
+    response = None
+    error_type = "unavailable"
+    for name, kwargs in attempts:
+        response = requests.post(FOXK_OAUTH + "/token", headers={"Accept": "application/json"},
+                                 timeout=15, **kwargs)
+        if response.ok:
+            FOXK_LOG.info("Whop token exchange succeeded via %s", name)
+            break
+        # Whitelist OAuth error identifiers; NEVER print response text,
+        # full URLs, tokens, request data, or exception messages.
+        error_type = "unavailable"
         try:
-            other_df=player_log(p2['id'],season)
-            if other_df.empty: st.info('No second-player game logs available.')
-            else:
-                common=[x for x in ['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA','MIN']
-                        if x in df and x in other_df and df[x].notna().any() and other_df[x].notna().any()]
-                if common:
-                    cm1,cm2,cm3=st.columns(3)
-                    with cm1: comparison_metric=st.selectbox('Comparison statistic',common,key='foxk_compare_stat')
-                    with cm2: comparison_n=st.selectbox('Games to compare',[5,10,20,40,82],key='foxk_compare_n')
-                    with cm3: comparison_line=st.number_input('Comparison threshold',min_value=0.0,value=20.5,step=.5,key='foxk_compare_line')
-                    result=[]
-                    for p,frame in [(selected,df),(p2,other_df)]:
-                        vals=frame[comparison_metric].dropna().head(comparison_n)
-                        decisions=int((vals!=comparison_line).sum())
-                        hits=int((vals>comparison_line).sum())
-                        result.append({'Player':p['name'],'Games':len(vals),'Average':round(float(vals.mean()),2) if len(vals) else None,
-                                       'Median':round(float(vals.median()),2) if len(vals) else None,
-                                       'Over hits':hits,'Over decisions':decisions,
-                                       'Over hit rate':f'{hits/decisions:.0%}' if decisions else 'N/A'})
-                    st.dataframe(pd.DataFrame(result),hide_index=True,use_container_width=True)
-                else: st.warning('The players have no shared numeric statistics in this season.')
-        except Exception as exc: st.warning(f'Second-player log unavailable: {exc}')
-
-if st.session_state.foxk_section == NAV_ITEMS[7]:
-    st.subheader('Saved prop watchlist')
-    st.caption('This watchlist is stored only in your current browser session. Export CSV to keep it; it is not synced across devices.')
-    if 'foxk_watchlist' not in st.session_state: st.session_state.foxk_watchlist=[]
-    w1,w2,w3=st.columns(3)
-    with w1: w_metric=st.selectbox('Watchlist statistic',valid,key='foxk_watch_metric')
-    with w2: w_line=st.number_input('Watchlist threshold',min_value=0.0,value=20.5,step=.5,key='foxk_watch_line')
-    with w3: w_side=st.selectbox('Watchlist direction',['Over','Under'],key='foxk_watch_side')
-    if st.button('Save this player + prop',type='primary',key='foxk_watch_add'):
-        item={'Player':selected['name'],'Team':selected['team'],'Player ID':selected['id'],
-              'Season':season,'Statistic':w_metric,'Threshold':w_line,'Direction':w_side}
-        if item not in st.session_state.foxk_watchlist:
-            st.session_state.foxk_watchlist.append(item)
-            st.success('Added to this session’s watchlist.')
-        else: st.info('Already saved.')
-    if st.session_state.foxk_watchlist:
-        saved=pd.DataFrame(st.session_state.foxk_watchlist)
-        st.dataframe(saved,hide_index=True,use_container_width=True)
-        st.download_button('Export watchlist CSV',saved.to_csv(index=False).encode('utf-8'),
-                           'FOXK_watchlist.csv','text/csv',key='foxk_watch_export')
-        if st.button('Clear watchlist',key='foxk_watch_clear'):
-            st.session_state.foxk_watchlist=[]
-            st.rerun()
-    else: st.info('Your watchlist is empty.')
-
-if st.session_state.foxk_section == NAV_ITEMS[8]:
-    st.subheader('FOXK VIP access')
-    st.success('Whop sign-in and active-product membership verification are enabled.')
-    st.caption('Your membership is rechecked on every app rerun. Discord role synchronization must be configured separately in Whop.')
-
-st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
+            payload = response.json()
+            if isinstance(payload, dict):
+                candidate = payload.get("error")
+                if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z_]{1,60}", candidate):
+                    error_type = candidate
+        except (ValueError, TypeError):
+            pass
+        FOXK_LOG.error("Whop token exchange (%s): HTTP %s; OAuth error=%s; response_type=%s",
+                       name, response.status_code, error_type,
+                       response.headers.get("Content-Type", "unknown").split(";")[0][:40])
+        if not (response.status_code == 401 and error_type == "invalid_client"):
