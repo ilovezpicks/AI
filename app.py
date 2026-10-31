@@ -795,13 +795,31 @@ div[data-testid="stAlert"] span {
 }
 </style>""", unsafe_allow_html=True)
 
+
+st.markdown("""<style>
+/* Dark season picker; avoids Streamlit's white BaseWeb selectbox entirely. */
+.foxk-season-caption{font-size:12px;letter-spacing:.07em;font-weight:800;color:#F1F6FF;margin-bottom:6px}
+[data-testid="stExpander"] summary{background:#111D31!important;color:#F8FAFC!important;}
+[data-testid="stExpander"] summary p{color:#F8FAFC!important;}
+[data-testid="stExpander"] [data-testid="stExpanderDetails"]{background:#111D31!important;}
+</style>""",unsafe_allow_html=True)
+
 # Global player and season selection; research filters belong to their own sections.
 top_left,top_right=st.columns([3,1])
 with top_left:
     search=st.text_input('Find player',placeholder='Search NBA players',key='foxk_player_query')
 with top_right:
-    season=st.selectbox('Season',[2027,2026,2025,2024,2023,2022],
-        index=0,format_func=lambda x:f'{x-1}–{str(x)[-2:]}')
+    if 'foxk_global_season' not in st.session_state:
+        st.session_state.foxk_global_season = 2027
+    chosen_season = st.session_state.foxk_global_season
+    st.markdown('<div class="foxk-season-caption">SEASON</div>', unsafe_allow_html=True)
+    with st.expander(f'🏀 {chosen_season-1}–{str(chosen_season)[-2:]}  ·  Change', expanded=False):
+        for yr in [2027, 2026, 2025, 2024, 2023, 2022]:
+            if st.button(f'{yr-1}–{str(yr)[-2:]}', key=f'foxk_season_{yr}',
+                         use_container_width=True, type='primary' if yr == chosen_season else 'secondary'):
+                st.session_state.foxk_global_season = yr
+                st.rerun()
+    season = st.session_state.foxk_global_season
 # Safe defaults for independent sections; each section can override them locally.
 window=10
 opponent=''
