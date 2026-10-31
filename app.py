@@ -741,18 +741,50 @@ if st.session_state.foxk_section == NAV_ITEMS[0]:
     numeric_cols=[col for col in ['MIN','PTS','REB','AST','3PM','STL','BLK'] if col in display_log]
     for col in numeric_cols:
         display_log[col]=pd.to_numeric(display_log[col],errors='coerce')
-    def _foxk_stat_shade(column):
-        return ['background-color:rgba(255,151,95,.14);color:#ffb887;font-weight:750' if pd.notna(v) else '' for v in column]
-    styled_log=display_log.style
-    if stat in numeric_cols:
-        styled_log=styled_log.apply(_foxk_stat_shade,subset=[stat])
-    styled_log=styled_log.format({col:'{:.0f}' for col in numeric_cols},na_rep='—')
-    st.dataframe(styled_log,use_container_width=True,hide_index=True,height=min(490,42+36*len(display_log)),column_config={
-        'DATE':st.column_config.TextColumn('DATE',width='medium'),
-        'OPP':st.column_config.TextColumn('OPP',width='small'),
-        'VENUE':st.column_config.TextColumn('VENUE',width='small'),
-        'W/L':st.column_config.TextColumn('W/L',width='small'),
-    })
+    # FOXK native dark game log: HTML avoids the Streamlit dataframe's white grid.
+    from html import escape as _foxk_escape
+    _foxk_css = """
+    <style>
+    .foxk-log-scroll{width:100%;max-height:490px;overflow:auto;border:1px solid #34445d;
+      border-radius:20px;background:#101a2a;box-shadow:0 16px 40px rgba(0,0,0,.24);margin:8px 0 16px}
+    .foxk-log-table{width:100%;border-collapse:separate;border-spacing:0;min-width:790px;
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e7eefc;font-size:13px}
+    .foxk-log-table thead th{position:sticky;top:0;z-index:2;text-align:left;padding:15px 14px;
+      background:#1a2940;color:#9fb5d0;font-size:10px;letter-spacing:.12em;font-weight:800;
+      border-bottom:1px solid #354a66}
+    .foxk-log-table tbody td{padding:14px;border-bottom:1px solid rgba(125,157,199,.13);white-space:nowrap}
+    .foxk-log-table tbody tr:nth-child(even){background:#142137}
+    .foxk-log-table tbody tr:hover{background:#233854}
+    .foxk-log-table tbody tr:last-child td{border-bottom:0}
+    .foxk-log-table td.foxk-log-focus{color:#ffb47c;font-weight:850;background:rgba(255,151,95,.11)}
+    .foxk-log-table td.foxk-log-number{text-align:right;font-variant-numeric:tabular-nums}
+    .foxk-log-table th.foxk-log-number{text-align:right}
+    .foxk-log-table .foxk-win{display:inline-flex;padding:4px 9px;border-radius:8px;
+      background:rgba(77,213,159,.13);color:#61e6b5;font-weight:800}
+    .foxk-log-table .foxk-loss{display:inline-flex;padding:4px 9px;border-radius:8px;
+      background:rgba(255,113,129,.12);color:#ff94a2;font-weight:800}
+    .foxk-log-table td:first-child{font-weight:650;color:#f3f7ff}
+    @media(max-width:700px){.foxk-log-table{font-size:12px}.foxk-log-table tbody td{padding:12px}}
+    </style>
+    """
+    _foxk_headers=''.join('<th class="foxk-log-number">'+_foxk_escape(str(c))+'</th>' if c in numeric_cols else '<th>'+_foxk_escape(str(c))+'</th>' for c in display_log.columns)
+    _foxk_rows=[]
+    for _, _foxk_record in display_log.iterrows():
+        _foxk_cells=[]
+        for _foxk_col in display_log.columns:
+            _foxk_val=_foxk_record[_foxk_col]
+            _foxk_txt='—' if pd.isna(_foxk_val) else (f'{float(_foxk_val):.0f}' if _foxk_col in numeric_cols else str(_foxk_val))
+            _foxk_class='foxk-log-number' if _foxk_col in numeric_cols else ''
+            if _foxk_col == stat:
+                _foxk_class+=' foxk-log-focus'
+            if _foxk_col == 'W/L' and _foxk_txt.upper() in ('W','L'):
+                _foxk_badge='foxk-win' if _foxk_txt.upper()=='W' else 'foxk-loss'
+                _foxk_content=f'<span class="{_foxk_badge}">{_foxk_escape(_foxk_txt)}</span>'
+            else:
+                _foxk_content=_foxk_escape(_foxk_txt)
+            _foxk_cells.append(f'<td class="{_foxk_class.strip()}">{_foxk_content}</td>')
+        _foxk_rows.append('<tr>'+''.join(_foxk_cells)+'</tr>')
+    st.markdown(_foxk_css+'<div class="foxk-log-scroll"><table class="foxk-log-table"><thead><tr>'+_foxk_headers+'</tr></thead><tbody>'+''.join(_foxk_rows)+'</tbody></table></div>',unsafe_allow_html=True)
     st.download_button('Download actual results (CSV)',df.to_csv(index=False).encode(),file_name='foxk_real_game_log.csv',mime='text/csv')
 
 # All 30 NBA franchises are selectable, including teams not yet faced this season.
