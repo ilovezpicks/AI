@@ -1227,6 +1227,54 @@ st.markdown("""<style>
 }
 </style>""",unsafe_allow_html=True)
 
+
+# Universal FOXK dark multiselect and popover controls.
+st.markdown("""<style>
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] input {
+ background:#111D31!important;background-color:#111D31!important;
+ color:#F8FAFC!important;-webkit-text-fill-color:#F8FAFC!important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+ border:1px solid #415678!important;border-radius:14px!important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+ background:#2C405F!important;border:1px solid #4C6383!important;
+ border-radius:9px!important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+[data-testid="stMultiSelect"] [data-baseweb="tag"] svg {
+ color:#FFB88A!important;-webkit-text-fill-color:#FFB88A!important;
+ fill:#FFB88A!important;
+}
+[data-testid="stPopover"] button,
+[data-testid="stPopover"] button * {
+ color:#F8FAFC!important;
+}
+[data-testid="stPopover"] button {
+ background:#1B2B46!important;border:1px solid #415678!important;
+ border-radius:14px!important;min-height:46px!important;
+}
+[data-testid="stPopover"] button:hover {
+ border-color:#FF995D!important;background:#273B58!important;
+}
+div[data-baseweb="popover"],div[data-baseweb="popover"] > div,
+div[data-baseweb="popover"] [role="listbox"],
+div[data-baseweb="popover"] [role="option"],
+div[data-baseweb="menu"] {
+ background:#101B2E!important;color:#F8FAFC!important;
+}
+div[data-baseweb="popover"] [role="option"]:hover,
+div[data-baseweb="popover"] [aria-selected="true"] {
+ background:#2A405F!important;color:#FFB88A!important;
+}
+div[data-baseweb="popover"] [data-baseweb="tag"] {
+ background:#304563!important;color:#FFB88A!important;
+}
+</style>""",unsafe_allow_html=True)
+
 if st.session_state.foxk_section == NAV_ITEMS[0]:
     st.subheader(f"{selected['name']} — {season-1}–{str(season)[-2:]}")
     with st.expander('Overview filters',expanded=False):
@@ -1665,7 +1713,17 @@ if st.session_state.foxk_section == NAV_ITEMS[3]:
     with h2h_cols[0]: stat=st.selectbox('H2H metric',['PTS','REB','AST','3PM','STL','BLK','PRA','PR','PA','RA'],key='foxk_h2h_stat')
     with h2h_cols[1]: line=st.number_input('H2H comparison line',min_value=0.0,value=24.5,step=0.5,key='foxk_h2h_line')
     # End-year values, e.g. 2027 means the 2026-27 season.
-    h2h_years=st.multiselect('Historical seasons to include (NBA season ending year)',list(range(2027,2010,-1)),default=list(range(2027,2016,-1)),key='foxk_h2h_years',help='Default: 2016–17 through 2026–27. Select older seasons to extend history. Seasons before the player entered the NBA will have no games.')
+    st.markdown('**HISTORICAL SEASONS TO INCLUDE**')
+    with st.popover('📅 Choose historical seasons', use_container_width=True):
+        h2h_years=st.multiselect(
+            'NBA season ending year',
+            list(range(2027,2010,-1)),
+            default=list(range(2027,2016,-1)),
+            key='foxk_h2h_years',
+            help='2027 means 2026–27. Seasons before the player entered the NBA have no games.'
+        )
+    if h2h_years:
+        st.caption(f"{len(h2h_years)} seasons selected · {min(h2h_years)-1}–{str(max(h2h_years))[-2:]} through {max(h2h_years)-1}–{str(max(h2h_years))[-2:]}")
     h2h_run=st.button('Load full head-to-head history',type='primary',key='foxk_h2h_load')
     if h2h_run:
         if not h2h_years:
