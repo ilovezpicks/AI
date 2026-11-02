@@ -2445,85 +2445,17 @@ def foxk_dvp_auto(days=21):
         records.append(record)
     return pd.DataFrame(records),len(games),parsed_games,today.isoformat()
 
-@st.cache_data(ttl=900, show_spinner=False)
-def foxk_sportsdataio_dvp(api_key, season):
-    """Licensed SportsDataIO TeamStatsAllowedByPosition season totals."""
-    url=f"https://api.sportsdata.io/v3/nba/stats/json/TeamStatsAllowedByPosition/{int(season)}"
-    response=requests.get(url,headers={"Ocp-Apim-Subscription-Key":api_key,
-                                        "Accept":"application/json"},timeout=25)
-    if response.status_code in (401,403):
-        raise ValueError("SportsDataIO key lacks NBA DVP access. Check your subscription entitlement.")
-    response.raise_for_status()
-    payload=response.json()
-    if not isinstance(payload,list):
-        raise ValueError("Unexpected SportsDataIO response format")
-    rows=[]
-    for obj in payload:
-        if not isinstance(obj,dict):continue
-        # SportsDataIO represents allowed-position records as nested OpponentSeason
-        # entries in TeamSeason records, depending on feed version.
-        entries=obj.get('OpponentSeason') or obj.get('OpponentSeasons') or obj.get('OpponentStats')
-        if isinstance(entries,dict):entries=[entries]
-        if not isinstance(entries,list):entries=[obj]
-        for item in entries:
-            if not isinstance(item,dict):continue
-            team=str(item.get('Team') or obj.get('Team') or '').upper()
-            team={'GS':'GSW','NO':'NOP','NY':'NYK','SA':'SAS','UTAH':'UTA','WSH':'WAS'}.get(team,team)
-            pos=str(item.get('Position') or item.get('OpponentPosition') or '').upper()
-            if team not in FOXK_ALL_NBA_TEAMS or pos not in ('PG','SG','SF','PF','C'):continue
-            games=item.get('Games') or obj.get('Games')
-            try: games=float(games)
-            except (TypeError,ValueError):continue
-            if games<=0:continue
-            # Do not mix season totals with per-game averages. Provider totals
-            # are divided by games played; absent stats remain missing.
-            record={'team':team,'position':pos,'games':int(games)}
-            for key,fields in {'pts':['Points'],'reb':['Rebounds'],'ast':['Assists'],
-                               '3pm':['ThreePointersMade'],'stl':['Steals'],
-                               'blk':['BlockedShots','Blocks']}.items():
-                value=next((item[f] for f in fields if item.get(f) is not None),None)
-                try:record[key]=round(float(value)/games,2)
-                except (TypeError,ValueError):record[key]=float('nan')
-            rows.append(record)
-    data=pd.DataFrame(rows)
-    if data.empty:
-        raise ValueError("SportsDataIO responded, but the position data format could not be verified. No misleading rankings will be displayed.")
-    if data.duplicated(['team','position']).any():
-        raise ValueError("SportsDataIO returned duplicate team/position entries; cannot rank safely.")
-    return data
-
 def foxk_dvp_panel(default_team=None, default_stat='PTS'):
-    try:
-        sd_key=str(st.secrets.get('sportsdataio',{}).get('api_key','')).strip()
-    except (FileNotFoundError,KeyError,TypeError,AttributeError):
-        sd_key=''
-    if sd_key:
-        st.caption('SportsDataIO licensed NBA Defense vs Position · season-to-date per-game averages · refreshes every 15 minutes when used.')
-    else:
-        st.caption('ESPN-derived DVP fallback · rolling 21 days · refreshed every 6 hours when used. Add a SportsDataIO NBA DVP API key to enable the licensed feed.')
+    st.caption('Automatically calculated from completed ESPN box scores. Rolling 21-day sample, refreshed every 6 hours when the app is used. Not Hashtag Basketball data or live in-game stats.')
     if st.button('Refresh DVP now',key='foxk_dvp_refresh'):
         foxk_dvp_auto.clear()
-        foxk_sportsdataio_dvp.clear()
-    if sd_key:
-        season=dt.datetime.now(dt.timezone.utc).year
-        # NBA season is named for its starting calendar year.
-        if dt.datetime.now(dt.timezone.utc).month<7:season-=1
-        try:
-            data=foxk_sportsdataio_dvp(sd_key,season)
-        except (requests.RequestException,ValueError) as exc:
-            st.error(f'SportsDataIO DVP unavailable: {exc}')
-            st.info('No ESPN fallback is substituted when a licensed key is configured, to avoid silently changing the source.')
-            return
-        found=parsed=0
-        asof=dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M')
-    else:
-        with st.spinner('Loading defensive matchups from completed NBA games…'):
-            data,found,parsed,asof=foxk_dvp_auto()
+    with st.spinner('Loading defensive matchups from completed NBA games…'):
+        data,found,parsed,asof=foxk_dvp_auto()
     if data.empty:
         st.warning('No usable position-level box scores were returned. Try Refresh DVP now later.')
         st.caption(f'Completed games found: {found}; usable box scores: {parsed}.')
         return
-    st.caption(f'As of {asof} UTC · '+('SportsDataIO season-to-date, per-game position totals.' if sd_key else f'{parsed} usable ESPN games · rolling 21 days.'))
+    st.caption(f'As of {asof} UTC · {parsed} usable games · per-game averages for players listed at each position · rolling 21 days.')
     cols=st.columns(3)
     positions=['PG','SG','SF','PF','C']
     pos=cols[1].selectbox('Position',positions,key='foxk_dvp_pos')
@@ -2591,7 +2523,7 @@ def foxk_dvp_panel(default_team=None, default_stat='PTS'):
         '</tr></thead><tbody>'+''.join(rows_html)+'</tbody></table></div>',
         unsafe_allow_html=True)
 
-    st.caption('Team totals allowed to listed positions per game, not individual player projections. Rankings depend on source coverage and position classification.')
+    st.caption('Interpret cautiously: this measures team totals allowed to listed positions per game, not individual-player projections. ESPN position labels and missing box scores can affect rankings.')
 
 if st.session_state.foxk_section == 'Defense vs Position':
     st.subheader('🛡️ Defense vs Position')
