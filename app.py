@@ -2362,54 +2362,111 @@ def foxk_dvp_normalize(frame):
         raise ValueError('CSV contains duplicate team/position rows')
     return f
 
-def foxk_dvp_panel(default_team=None, default_stat='PTS'):
-    st.caption('Position-based team allowances, not player projections. Higher allowed values mean easier matchups for that statistic. Check source normalization before comparing.')
-    source=None
-    try: source=str(st.secrets.get('dvp',{}).get('csv_url','')).strip()
-    except Exception: pass
-    uploaded=st.file_uploader('Optional: import permitted DVP CSV',type=['csv'],key='foxk_dvp_upload')
-    raw=None
-    if uploaded is not None:
-        try: raw=pd.read_csv(uploaded)
-        except Exception as e: st.warning('Could not read CSV: '+str(e))
-        st.caption('Source: manually uploaded CSV')
-    elif source:
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def foxk_dvp_auto(days=21):
+    """Calculate rolling DVP from completed ESPN NBA box scores (not Hashtag data)."""
+    from collections import defaultdict
+    today=dt.datetime.now(dt.timezone.utc).date()
+    games={}
+    # ESPN scoreboard supports day-specific queries; only finalized games count.
+    for offset in range(days):
+        day=(today-dt.timedelta(days=offset)).strftime('%Y%m%d')
         try:
-            raw=foxk_dvp_remote(source)
-            st.caption('Source: configured DVP CSV feed · cached for 60 minutes')
-        except Exception as e:
-            st.warning('DVP feed unavailable: '+str(e))
-    else:
-        st.info('To enable automatic updates, configure an authorized HTTPS CSV feed in Streamlit Secrets under [dvp] csv_url. Alternatively upload a CSV exported with permission.')
-    if raw is None:
-        st.code('team,position,pts,reb,ast,3pm,stl,blk\nATL,PG,0,0,0,0,0,0',language='csv')
-        st.caption('Template only: zeros above are placeholders, not real defensive statistics.')
-        return
-    try: data=foxk_dvp_normalize(raw)
-    except ValueError as e:
-        st.error(str(e));return
+            schedule=fetch(BASE+'/scoreboard',{'dates':day,'limit':100})
+        except Exception:
+            continue
+        for event in schedule.get('events',[]):
+            eid=str(event.get('id',''))
+            comp=(event.get('competitions') or [{}])[0]
+            status=comp.get('status') or event.get('status') or {}
+            completed=(status.get('type') or {}).get('completed',False)
+            if eid and completed:
+                games[eid]=event
+    totals=defaultdict(lambda:defaultdict(float))
+    counts=defaultdict(int)
+    parsed_games=0
+    for eid,event in games.items():
+        try:
+            detail=fetch(BASE+'/summary',{'event':eid})
+            players=detail.get('boxscore',{}).get('players',[])
+            if len(players)!=2: continue
+            team_abbr=[]
+            for group in players:
+                abbr=str(group.get('team',{}).get('abbreviation','')).upper()
+                abbr={'GS':'GSW','NO':'NOP','NY':'NYK','SA':'SAS','UTAH':'UTA','WSH':'WAS'}.get(abbr,abbr)
+                team_abbr.append(abbr)
+            if not all(t in FOXK_ALL_NBA_TEAMS for t in team_abbr):continue
+            parsed_games+=1
+            for idx,group in enumerate(players):
+                defending_team=team_abbr[1-idx]
+                per_position=defaultdict(lambda:defaultdict(float))
+                for category in group.get('statistics',[]):
+                    labels=[str(x).upper() for x in category.get('labels',[])]
+                    for athlete in category.get('athletes',[]):
+                        if athlete.get('didNotPlay'):continue
+                        person=athlete.get('athlete') or {}
+                        pos=(person.get('position') or {})
+                        pos=str(pos.get('abbreviation','') if isinstance(pos,dict) else pos).upper()
+                        if pos not in ('PG','SG','SF','PF','C'):continue
+                        values=athlete.get('stats') or []
+                        stats=dict(zip(labels,values))
+                        for name,keys in {'pts':['PTS'],'reb':['REB'],'ast':['AST'],
+                                          'stl':['STL'],'blk':['BLK'],'3pm':['3PT','3PM']}.items():
+                            val=next((stats[k] for k in keys if k in stats),None)
+                            if val is None:continue
+                            try:
+                                # 3PT is typically made-attempted (e.g. 3-8).
+                                numeric=float(str(val).split('-')[0].replace(',',''))
+                            except (ValueError,TypeError):continue
+                            per_position[pos][name]+=numeric
+                for pos,stats in per_position.items():
+                    counts[(defending_team,pos)]+=1
+                    for name,value in stats.items():
+                        totals[(defending_team,pos)][name]+=value
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            continue
+    records=[]
+    for (team,pos),stats in totals.items():
+        n=counts[(team,pos)]
+        if not n:continue
+        record={'team':team,'position':pos,'games':n}
+        record.update({name:round(stats.get(name,0)/n,2) for name in ('pts','reb','ast','3pm','stl','blk')})
+        records.append(record)
+    return pd.DataFrame(records),len(games),parsed_games,today.isoformat()
+
+def foxk_dvp_panel(default_team=None, default_stat='PTS'):
+    st.caption('Automatically calculated from completed ESPN box scores. Rolling 21-day sample, refreshed every 6 hours when the app is used. Not Hashtag Basketball data or live in-game stats.')
+    if st.button('Refresh DVP now',key='foxk_dvp_refresh'):
+        foxk_dvp_auto.clear()
+    with st.spinner('Loading defensive matchups from completed NBA games…'):
+        data,found,parsed,asof=foxk_dvp_auto()
     if data.empty:
-        st.warning('No valid NBA team/position rows in this data.');return
+        st.warning('No usable position-level box scores were returned. Try Refresh DVP now later.')
+        st.caption(f'Completed games found: {found}; usable box scores: {parsed}.')
+        return
+    st.caption(f'As of {asof} UTC · {parsed} usable games · per-game averages for players listed at each position · rolling 21 days.')
     cols=st.columns(3)
-    team=cols[0].selectbox('Opponent',FOXK_ALL_NBA_TEAMS,index=FOXK_ALL_NBA_TEAMS.index(default_team) if default_team in FOXK_ALL_NBA_TEAMS else 0,key='foxk_dvp_team')
+    available=sorted(data.team.unique())
+    team=cols[0].selectbox('Opponent',available,index=available.index(default_team) if default_team in available else 0,key='foxk_dvp_team')
     pos=cols[1].selectbox('Position',['PG','SG','SF','PF','C'],key='foxk_dvp_pos')
-    stat_options=[x for x in ['pts','reb','ast','3pm','stl','blk'] if x in data and data[x].notna().any()]
-    if not stat_options:
-        st.warning('No numeric DVP columns were found.');return
-    metric=cols[2].selectbox('Statistic',stat_options,index=stat_options.index(default_stat.lower()) if default_stat.lower() in stat_options else 0,key='foxk_dvp_stat')
+    metric=cols[2].selectbox('Statistic',['pts','reb','ast','3pm','stl','blk'],key='foxk_dvp_stat')
     subset=data[(data.position==pos)&data[metric].notna()].copy()
+    if subset.empty:
+        st.info('No position-level data for this selection.');return
+    subset['ease_rank']=subset[metric].rank(ascending=False,method='min')
     target=subset[subset.team==team]
     if target.empty:
-        st.info('No DVP data available for this team and position.');return
-    subset['rank_easiest']=subset[metric].rank(ascending=False,method='min')
-    record=subset[subset.team==team].iloc[0]
-    a,b,c=st.columns(3)
+        st.info('No data for this opponent and position in the current sample.');return
+    record=target.iloc[0]
+    a,b,c,d=st.columns(4)
     a.metric(f'{team} vs {pos} · {metric.upper()} allowed',f'{record[metric]:.1f}')
-    b.metric('Easiest-matchup rank',f'{int(record.rank_easiest)} / {len(subset)}')
-    label='Favorable' if record.rank_easiest<=len(subset)/3 else ('Difficult' if record.rank_easiest>2*len(subset)/3 else 'Neutral')
-    c.metric('Relative matchup',label)
-    st.dataframe(subset[['team','position',metric,'rank_easiest']].sort_values('rank_easiest').rename(columns={'rank_easiest':'Ease rank'}),hide_index=True,use_container_width=True)
-    st.caption('Rank is computed only across teams present in this feed. Data may be per game or per 48 minutes depending on the feed; verify before using.')
+    b.metric('Ease rank',f'{int(record.ease_rank)} / {len(subset)}')
+    c.metric('Sample games',str(int(record.games)))
+    label='Favorable' if record.ease_rank<=len(subset)/3 else ('Difficult' if record.ease_rank>2*len(subset)/3 else 'Neutral')
+    d.metric('Relative matchup',label)
+    st.dataframe(subset[['team','position',metric,'games','ease_rank']].sort_values('ease_rank').rename(columns={'games':'Sample games','ease_rank':'Ease rank'}),hide_index=True,width='stretch')
+    st.caption('Interpret cautiously: this measures team totals allowed to listed positions per game, not individual-player projections. ESPN position labels and missing box scores can affect rankings.')
 
 if st.session_state.foxk_section == 'Defense vs Position':
     st.subheader('🛡️ Defense vs Position')
