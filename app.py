@@ -2407,7 +2407,17 @@ def foxk_dvp_auto(days=21):
                         if athlete.get('didNotPlay'):continue
                         person=athlete.get('athlete') or {}
                         pos=(person.get('position') or {})
-                        pos=str(pos.get('abbreviation','') if isinstance(pos,dict) else pos).upper()
+                        pos=str((pos.get('abbreviation') or pos.get('displayName') or pos.get('name') or '') if isinstance(pos,dict) else pos).upper().strip()
+                        # ESPN sometimes supplies broad positions instead of the five
+                        # fantasy positions. Map these transparently as estimates.
+                        pos_map={'POINT GUARD':'PG','SHOOTING GUARD':'SG',
+                                 'SMALL FORWARD':'SF','POWER FORWARD':'PF',
+                                 'CENTER':'C','GUARD':'SG','G':'SG',
+                                 'FORWARD':'SF','F':'SF','GUARD-FORWARD':'SF',
+                                 'G-F':'SF','FORWARD-GUARD':'SF','F-G':'SF',
+                                 'FORWARD-CENTER':'PF','F-C':'PF',
+                                 'CENTER-FORWARD':'C','C-F':'C'}
+                        pos=pos_map.get(pos,pos)
                         if pos not in ('PG','SG','SF','PF','C'):continue
                         values=athlete.get('stats') or []
                         stats=dict(zip(labels,values))
@@ -2447,13 +2457,20 @@ def foxk_dvp_panel(default_team=None, default_stat='PTS'):
         return
     st.caption(f'As of {asof} UTC · {parsed} usable games · per-game averages for players listed at each position · rolling 21 days.')
     cols=st.columns(3)
-    available=sorted(data.team.unique())
-    team=cols[0].selectbox('Opponent',available,index=available.index(default_team) if default_team in available else 0,key='foxk_dvp_team')
-    pos=cols[1].selectbox('Position',['PG','SG','SF','PF','C'],key='foxk_dvp_pos')
+    positions=['PG','SG','SF','PF','C']
+    pos=cols[1].selectbox('Position',positions,key='foxk_dvp_pos')
     metric=cols[2].selectbox('Statistic',['pts','reb','ast','3pm','stl','blk'],key='foxk_dvp_stat')
+    available=sorted(data.loc[data.position==pos,'team'].unique())
+    if not available:
+        st.warning(f'ESPN returned no usable {pos} data in this sample. Try a different position.')
+        return
+    # Show only opponents that have data for the chosen position.
+    team=cols[0].selectbox('Opponent',available,index=available.index(default_team) if default_team in available else 0,key='foxk_dvp_team')
     subset=data[(data.position==pos)&data[metric].notna()].copy()
     if subset.empty:
         st.info('No position-level data for this selection.');return
+    if default_team and default_team not in available:
+        st.info(f'{default_team} has no verified {pos} data in the rolling sample. Showing {team} instead. No values were estimated.')
     subset['ease_rank']=subset[metric].rank(ascending=False,method='min')
     target=subset[subset.team==team]
     if target.empty:
