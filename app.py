@@ -877,18 +877,18 @@ if not valid:
 # Native Streamlit navigation buttons: no st.tabs CSS or unreadable inactive labels.
 st.markdown('<div class="foxk-section-marker">Explore your workspace</div>',unsafe_allow_html=True)
 # Keep legacy section IDs for all existing analysis and calculation code.
-NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access', 'Prop Finder', 'Prop Analyzer', 'Line Movement', 'Injury Context', 'Pick Tracker', 'FOXK Assistant', 'Today Dashboard', 'Smart Watchlist']
+NAV_ITEMS = ['Overview', 'Prop research', 'Teammates', 'Career H2H', 'Team defense', 'Scouting report', 'Compare players', 'Watchlist', 'VIP access', 'Prop Finder', 'Prop Analyzer', 'Line Movement', 'Injury Context', 'Pick Tracker', 'FOXK Assistant', 'Today Dashboard', 'Smart Watchlist', 'Defense vs Position']
 FOXK_WORKSPACES = {
     '🎯 Prop Lab': ['Prop research'],
     '📈 Player Trends': ['Overview', 'Compare players'],
-    '🛡️ Matchup Intel': ['Team defense', 'Career H2H', 'Scouting report'],
+    '🛡️ Matchup Intel': ['Team defense', 'Defense vs Position', 'Career H2H', 'Scouting report'],
     '👥 Lineup Impact': ['Teammates'],
     '⭐ My Watchlist': ['Watchlist', 'Smart Watchlist', 'Pick Tracker'],
     '🚀 Pro Tools': ['Today Dashboard', 'Prop Finder', 'Prop Analyzer', 'Line Movement', 'Injury Context', 'FOXK Assistant'],
 }
 FOXK_SECTION_LABELS = {
     'Prop research': 'Prop research', 'Overview': 'Game logs & trends',
-    'Compare players': 'Compare players', 'Team defense': 'Opponent defense',
+    'Compare players': 'Compare players', 'Team defense': 'Opponent defense', 'Defense vs Position': 'Defense vs Position',
     'Career H2H': 'Career head-to-head', 'Scouting report': 'Scouting notes',
     'Teammates': 'Teammate availability', 'Watchlist': 'Saved props',
     'Prop Finder': 'Prop Finder', 'Prop Analyzer': 'Prop Analyzer',
@@ -2319,3 +2319,98 @@ from foxk_pro_tools import render_pro_tools
 render_pro_tools(st.session_state.foxk_section, selected, df, season, all_players, player_log, foxk_dark_table, foxk_today_scoreboard)
 
 st.caption('FOXK is independent of ESPN and the NBA. Unofficial free feeds may change or become unavailable. All displayed statistics must be backed by returned game records.')
+
+
+# FOXK DVP: Authorized CSV feed or manual CSV import; never fabricate matchup data.
+# Configure [dvp] csv_url in Streamlit Secrets only for a feed you are permitted to use.
+@st.cache_data(ttl=3600, show_spinner=False)
+def foxk_dvp_remote(url):
+    from io import StringIO
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme != 'https' or not parsed.hostname:
+        raise ValueError('DVP feed must be an HTTPS CSV URL')
+    response = requests.get(url, timeout=15, allow_redirects=False,
+                            headers={'Accept': 'text/csv,text/plain'})
+    response.raise_for_status()
+    if len(response.content) > 2_000_000:
+        raise ValueError('DVP CSV exceeds the 2 MB limit')
+    return pd.read_csv(StringIO(response.text))
+
+def foxk_dvp_normalize(frame):
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    f=frame.copy()
+    f.columns=[str(c).strip().lower().replace(' ','_') for c in f.columns]
+    aliases={'team':['team','opponent','abbr','team_abbreviation'],
+             'position':['position','pos'],
+             'pts':['pts','points'], 'reb':['reb','rebounds'],
+             'ast':['ast','assists'], '3pm':['3pm','threes','three_pointers_made'],
+             'stl':['stl','steals'], 'blk':['blk','blocks']}
+    for standard,choices in aliases.items():
+        col=next((c for c in choices if c in f.columns),None)
+        if col is not None: f[standard]=f[col]
+    if 'team' not in f or 'position' not in f:
+        raise ValueError('CSV needs team and position columns')
+    f['team']=f['team'].astype(str).str.strip().str.upper().replace({'GS':'GSW','NO':'NOP','NY':'NYK','SA':'SAS','UTAH':'UTA','WSH':'WAS'})
+    f['position']=f['position'].astype(str).str.strip().str.upper()
+    f=f[f['position'].isin(['PG','SG','SF','PF','C'])].copy()
+    f=f[f['team'].isin(FOXK_ALL_NBA_TEAMS)].copy()
+    for c in ['pts','reb','ast','3pm','stl','blk']:
+        if c in f: f[c]=pd.to_numeric(f[c],errors='coerce')
+    if f.duplicated(['team','position']).any():
+        raise ValueError('CSV contains duplicate team/position rows')
+    return f
+
+def foxk_dvp_panel(default_team=None, default_stat='PTS'):
+    st.caption('Position-based team allowances, not player projections. Higher allowed values mean easier matchups for that statistic. Check source normalization before comparing.')
+    source=None
+    try: source=str(st.secrets.get('dvp',{}).get('csv_url','')).strip()
+    except Exception: pass
+    uploaded=st.file_uploader('Optional: import permitted DVP CSV',type=['csv'],key='foxk_dvp_upload')
+    raw=None
+    if uploaded is not None:
+        try: raw=pd.read_csv(uploaded)
+        except Exception as e: st.warning('Could not read CSV: '+str(e))
+        st.caption('Source: manually uploaded CSV')
+    elif source:
+        try:
+            raw=foxk_dvp_remote(source)
+            st.caption('Source: configured DVP CSV feed · cached for 60 minutes')
+        except Exception as e:
+            st.warning('DVP feed unavailable: '+str(e))
+    else:
+        st.info('To enable automatic updates, configure an authorized HTTPS CSV feed in Streamlit Secrets under [dvp] csv_url. Alternatively upload a CSV exported with permission.')
+    if raw is None:
+        st.code('team,position,pts,reb,ast,3pm,stl,blk\nATL,PG,0,0,0,0,0,0',language='csv')
+        st.caption('Template only: zeros above are placeholders, not real defensive statistics.')
+        return
+    try: data=foxk_dvp_normalize(raw)
+    except ValueError as e:
+        st.error(str(e));return
+    if data.empty:
+        st.warning('No valid NBA team/position rows in this data.');return
+    cols=st.columns(3)
+    team=cols[0].selectbox('Opponent',FOXK_ALL_NBA_TEAMS,index=FOXK_ALL_NBA_TEAMS.index(default_team) if default_team in FOXK_ALL_NBA_TEAMS else 0,key='foxk_dvp_team')
+    pos=cols[1].selectbox('Position',['PG','SG','SF','PF','C'],key='foxk_dvp_pos')
+    stat_options=[x for x in ['pts','reb','ast','3pm','stl','blk'] if x in data and data[x].notna().any()]
+    if not stat_options:
+        st.warning('No numeric DVP columns were found.');return
+    metric=cols[2].selectbox('Statistic',stat_options,index=stat_options.index(default_stat.lower()) if default_stat.lower() in stat_options else 0,key='foxk_dvp_stat')
+    subset=data[(data.position==pos)&data[metric].notna()].copy()
+    target=subset[subset.team==team]
+    if target.empty:
+        st.info('No DVP data available for this team and position.');return
+    subset['rank_easiest']=subset[metric].rank(ascending=False,method='min')
+    record=subset[subset.team==team].iloc[0]
+    a,b,c=st.columns(3)
+    a.metric(f'{team} vs {pos} · {metric.upper()} allowed',f'{record[metric]:.1f}')
+    b.metric('Easiest-matchup rank',f'{int(record.rank_easiest)} / {len(subset)}')
+    label='Favorable' if record.rank_easiest<=len(subset)/3 else ('Difficult' if record.rank_easiest>2*len(subset)/3 else 'Neutral')
+    c.metric('Relative matchup',label)
+    st.dataframe(subset[['team','position',metric,'rank_easiest']].sort_values('rank_easiest').rename(columns={'rank_easiest':'Ease rank'}),hide_index=True,use_container_width=True)
+    st.caption('Rank is computed only across teams present in this feed. Data may be per game or per 48 minutes depending on the feed; verify before using.')
+
+if st.session_state.foxk_section == 'Defense vs Position':
+    st.subheader('🛡️ Defense vs Position')
+    foxk_dvp_panel()
