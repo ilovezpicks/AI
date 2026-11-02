@@ -2478,11 +2478,51 @@ def foxk_dvp_panel(default_team=None, default_stat='PTS'):
     record=target.iloc[0]
     a,b,c,d=st.columns(4)
     a.metric(f'{team} vs {pos} · {metric.upper()} allowed',f'{record[metric]:.1f}')
-    b.metric('Ease rank',f'{int(record.ease_rank)} / {len(subset)}')
+    b.metric('DVP rank',f'{int(record.ease_rank)} / {len(subset)}')
     c.metric('Sample games',str(int(record.games)))
     label='Favorable' if record.ease_rank<=len(subset)/3 else ('Difficult' if record.ease_rank>2*len(subset)/3 else 'Neutral')
     d.metric('Relative matchup',label)
-    st.dataframe(subset[['team','position',metric,'games','ease_rank']].sort_values('ease_rank').rename(columns={'games':'Sample games','ease_rank':'Ease rank'}),hide_index=True,width='stretch')
+    # Render a compact, fully dark table instead of Streamlit's white data grid.
+    # All cell contents are escaped; no user-controlled HTML is injected.
+    display=subset[['team','position',metric,'games','ease_rank']].sort_values(
+        ['ease_rank','team']).reset_index(drop=True)
+    rows_html=[]
+    for _,item in display.iterrows():
+        selected=str(item['team'])==str(team)
+        row_style="background:rgba(255,150,90,.13);" if selected else ""
+        rank=int(item['ease_rank'])
+        rank_color="#79e5b3" if rank<=len(subset)/3 else (
+            "#ffb18a" if rank>2*len(subset)/3 else "#dce4f5")
+        rows_html.append(
+            f'<tr style="{row_style}">'
+            f'<td><strong>{foxk_html_escape(str(item["team"]))}</strong></td>'
+            f'<td>{foxk_html_escape(str(item["position"]))}</td>'
+            f'<td class="num">{float(item[metric]):.2f}</td>'
+            f'<td class="num">{int(item["games"])}</td>'
+            f'<td class="num" style="color:{rank_color};font-weight:800">{rank} / {len(subset)}</td>'
+            '</tr>')
+    st.markdown("""
+    <style>
+    .foxk-dvp-scroll{max-height:430px;overflow:auto;border:1px solid #33425e;
+      border-radius:16px;background:#101827;margin:10px 0 14px}
+    .foxk-dvp-table{border-collapse:separate;border-spacing:0;width:100%;
+      min-width:540px;color:#e9eef9;font-size:13px}
+    .foxk-dvp-table th{position:sticky;top:0;background:#202b42;color:#b9c9e4;
+      padding:13px 15px;text-align:left;letter-spacing:.04em;font-size:11px;
+      text-transform:uppercase;z-index:1}
+    .foxk-dvp-table td{padding:12px 15px;border-top:1px solid #29354b}
+    .foxk-dvp-table tbody tr:hover{background:#26334a!important}
+    .foxk-dvp-table .num{text-align:right;font-variant-numeric:tabular-nums}
+    .foxk-dvp-table th.num{text-align:right}
+    </style>""",unsafe_allow_html=True)
+    st.markdown(
+        '<div class="foxk-dvp-scroll"><table class="foxk-dvp-table">'
+        '<thead><tr><th>Opponent</th><th>Position</th>'
+        f'<th class="num">{foxk_html_escape(metric.upper())} allowed</th>'
+        '<th class="num">Games</th><th class="num">DVP rank</th>'
+        '</tr></thead><tbody>'+''.join(rows_html)+'</tbody></table></div>',
+        unsafe_allow_html=True)
+
     st.caption('Interpret cautiously: this measures team totals allowed to listed positions per game, not individual-player projections. ESPN position labels and missing box scores can affect rankings.')
 
 if st.session_state.foxk_section == 'Defense vs Position':
